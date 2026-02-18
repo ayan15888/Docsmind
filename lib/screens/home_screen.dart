@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:async';
 import 'package:flutter/services.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:docsmind/constants/app_constants.dart';
 import 'package:docsmind/core/providers.dart';
 import 'package:docsmind/screens/camera_screen.dart';
+import 'package:docsmind/features/settings/services/settings_service.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
@@ -54,7 +56,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 onPressed: () {
                   Navigator.pop(context);
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Scan business card selected')),
+                    const SnackBar(
+                        content: Text('Scan business card selected')),
                   );
                 },
               ),
@@ -87,29 +90,75 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     }
   }
 
+  void _showSettings() {
+    SettingsService.showSettingsDialog(context);
+  }
+
   @override
   Widget build(BuildContext context) {
-    final lastPath = ref.watch(cameraPathProvider);
+    final documents = ref.watch(documentsProvider);
+    final errorMessage = ref.watch(errorMessageProvider);
+
     return Scaffold(
       appBar: AppBar(
         backgroundColor: AppColors.primary,
         title: const Text('Home'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.settings),
+            onPressed: _showSettings,
+          ),
+        ],
       ),
       body: Column(
         children: [
-          if (lastPath != null)
-            Padding(
+          if (errorMessage != null)
+            Container(
+              color: Colors.red.withOpacity(0.2),
               padding: const EdgeInsets.all(8.0),
-              child: Text('Last photo: $lastPath'),
-            ),
-          Expanded(
-            child: ListView.builder(
-              itemCount: 20,
-              itemBuilder: (context, index) => ListTile(
-                leading: const Icon(Icons.description),
-                title: Text('Item #${index + 1}'),
+              child: Row(
+                children: [
+                  const Icon(Icons.error, color: Colors.red),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      errorMessage,
+                      style: const TextStyle(color: Colors.red),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () {
+                      ref.read(errorMessageProvider.notifier).state = null;
+                    },
+                  ),
+                ],
               ),
             ),
+          // if (lastPath != null)
+          //   Padding(
+          //     padding: const EdgeInsets.all(8.0),
+          //     // child: Text('Last photo: $lastPath'),
+          //   ),
+          Expanded(
+            child: documents.isEmpty
+                ? Center(
+                    child: Text(
+                      'No documents scanned yet',
+                      style: GoogleFonts.pixelifySans().copyWith(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  )
+                : ListView.builder(
+                    itemCount: documents.length,
+                    itemBuilder: (context, index) => ListTile(
+                      leading: const Icon(Icons.description),
+                      title: Text('Document #${index + 1}'),
+                      subtitle: Text(documents[index]),
+                    ),
+                  ),
           ),
         ],
       ),
