@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:camera/camera.dart';
+import 'package:docsmind/features/document_scanner/services/document_scanner_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:docsmind/constants/app_constants.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:docsmind/core/providers.dart';
 import 'package:docsmind/features/camera/providers/camera_providers.dart';
 import 'package:docsmind/features/camera/widgets/camera_control_bar.dart';
@@ -49,12 +51,14 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
   }
 
   void _applyFlash(FlashMode mode) {
-    final f = ref.read(cameraControllerProvider).valueOrNull?.setFlashMode(mode);
+    final f =
+        ref.read(cameraControllerProvider).valueOrNull?.setFlashMode(mode);
     if (f != null) unawaited(f);
   }
 
   void _applyFocus(FocusMode mode) {
-    final f = ref.read(cameraControllerProvider).valueOrNull?.setFocusMode(mode);
+    final f =
+        ref.read(cameraControllerProvider).valueOrNull?.setFocusMode(mode);
     if (f != null) unawaited(f);
   }
 
@@ -65,7 +69,8 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
       ref.read(cameraMinZoomProvider.notifier).state = min;
       ref.read(cameraMaxZoomProvider.notifier).state = max;
       final current = ref.read(cameraZoomLevelProvider);
-      ref.read(cameraZoomLevelProvider.notifier).state = current.clamp(min, max);
+      ref.read(cameraZoomLevelProvider.notifier).state =
+          current.clamp(min, max);
     } catch (_) {
       // Keep defaults if unsupported.
     }
@@ -116,9 +121,18 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
   void _onCameraImage(CameraImage image) {
     if (!mounted) return;
     _frameCount++;
-    if (_frameCount % 10 != 0) return;
+    if (_frameCount % 3 != 0) return;
     final scanner = ref.read(documentScannerProvider);
-    final detected = scanner.detectDocumentInCameraImage(image);
+    final live = scanner.detectDocumentInCameraImageLive(image);
+    final detected = live?.isDetected ?? false;
+
+    // Update live overlay providers.
+    ref.read(liveDocumentDetectedProvider.notifier).state = detected;
+    if (detected && live != null && live.corners.isNotEmpty) {
+      ref.read(liveDocumentCornersProvider.notifier).state = live.corners;
+    } else {
+      ref.read(liveDocumentCornersProvider.notifier).state = const [];
+    }
     if (!mounted) return;
     setState(() {
       if (detected) {
@@ -127,7 +141,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
         _consecutiveDetections = 0;
       }
     });
-    if (_consecutiveDetections >= 3) {
+    if (_consecutiveDetections >= 2) {
       _consecutiveDetections = 0;
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         await _stopStream();
@@ -155,19 +169,36 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
       ref.read(capturedImageProvider.notifier).state = image;
       ref.read(cameraPathProvider.notifier).state = image.path;
 
-      final currentDocs = ref.read(documentsProvider);
-      ref.read(documentsProvider.notifier).state = [...currentDocs, image.path];
-
       final scannerService = ref.read(documentScannerProvider);
-      final scanResult = await scannerService.detectDocumentEdges(image.path);
+      // Try native OpenCV detection first
+      DetectedDocument? scanResult;
+      try {
+        scanResult = await scannerService.detectDocumentEdgesNative(image.path);
+        debugPrint(
+            '[DocsMind] Native OpenCV result: detected=${scanResult?.isDetected}, corners=${scanResult?.corners.length}');
+      } catch (e) {
+        debugPrint('Native OpenCV detection failed: $e');
+      }
+
+      // Fallback to Dart if native fails or returned no detection
+      if (scanResult == null || !scanResult.isDetected) {
+        debugPrint('[DocsMind] Falling back to Dart edge detection...');
+        scanResult = await scannerService.detectDocumentEdges(image.path);
+        debugPrint(
+            '[DocsMind] Dart result: detected=${scanResult?.isDetected}, corners=${scanResult?.corners.length}');
+      }
 
       if (mounted) {
+        ref.read(lastScanResultProvider.notifier).state = scanResult;
+        ref.read(isCapturingProvider.notifier).state = false;
+
+        // Automatically open the interactive preview with detected contour points
         await _showPreview(image, scanResult);
       }
     } catch (e) {
-      ref.read(errorMessageProvider.notifier).state = 'Error taking picture: $e';
+      ref.read(errorMessageProvider.notifier).state =
+          'Error taking picture: $e';
       debugPrint('Error taking picture: $e');
-    } finally {
       ref.read(isCapturingProvider.notifier).state = false;
     }
   }
@@ -188,15 +219,28 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
       builder: (context) => InteractivePreviewDialog(
         image: image,
         detectedDoc: detectedDoc,
-        onKeep: (corners) {
-          final pathToSave = detectedDoc?.isDetected == true
-              ? detectedDoc!.croppedPath
-              : image.path;
+        onKeep: (corners) async {
+          final scanner = ref.read(documentScannerProvider);
+          // Use native OpenCV for perspective transform + whiteboard enhancement
+          final processedPath = await scanner.processDocumentNative(
+            image.path,
+            corners,
+            filter: 'whiteboard',
+          );
+          final pathToSave = processedPath;
+
+          // Update last path + documents and kept lists with the final cropped image.
           ref.read(cameraPathProvider.notifier).state = pathToSave;
+          final docs = ref.read(documentsProvider);
+          ref.read(documentsProvider.notifier).state = [...docs, pathToSave];
+
           ref.read(capturedImageProvider.notifier).state = null;
           ref.read(errorMessageProvider.notifier).state = null;
           final kept = ref.read(keptScannedDocumentsProvider);
-          ref.read(keptScannedDocumentsProvider.notifier).state = [...kept, pathToSave];
+          ref.read(keptScannedDocumentsProvider.notifier).state = [
+            ...kept,
+            pathToSave
+          ];
           Navigator.pop(context); // Only pop the dialog, stay on camera screen
         },
         onDiscard: () {
@@ -213,8 +257,10 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
 
   @override
   Widget build(BuildContext context) {
-    ref.listen<FlashMode>(cameraFlashModeProvider, (_, next) => _applyFlash(next));
-    ref.listen<FocusMode>(cameraFocusModeProvider, (_, next) => _applyFocus(next));
+    ref.listen<FlashMode>(
+        cameraFlashModeProvider, (_, next) => _applyFlash(next));
+    ref.listen<FocusMode>(
+        cameraFocusModeProvider, (_, next) => _applyFocus(next));
     ref.listen<double>(cameraZoomLevelProvider, (_, next) => _applyZoom(next));
     ref.listen<bool>(cameraAutoCaptureProvider, (prev, next) {
       if (next) {
@@ -223,34 +269,70 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
         _stopStream();
       }
     });
+
     return Scaffold(
-      appBar: AppBar(
-        backgroundColor: AppColors.primary,
-        title: const Text('Camera'),
-        centerTitle: true,
-        elevation: 0,
-      ),
+      backgroundColor: Colors.black,
       body: Stack(
         fit: StackFit.expand,
         children: [
+          // Camera preview
           const CameraPreviewLayer(),
+
+          // B&W film corners overlay
+          Positioned.fill(child: _BWFrameOverlay()),
+
+          // Top control bar
           const Positioned(
             top: 0,
             left: 0,
             right: 0,
             child: CameraControlBar(),
           ),
+
+          // Captured preview bar
+          Positioned(
+            left: 16,
+            right: 16,
+            bottom: 160,
+            child: Consumer(
+              builder: (context, ref, _) {
+                final image = ref.watch(capturedImageProvider);
+                if (image == null) return const SizedBox.shrink();
+                return _BWCapturedPreviewBar(
+                  image: image,
+                  onEdit: () async {
+                    final captured = ref.read(capturedImageProvider);
+                    if (captured == null) return;
+                    final scan = ref.read(lastScanResultProvider);
+                    await _showPreview(captured, scan);
+                  },
+                  onDelete: () {
+                    final captured = ref.read(capturedImageProvider);
+                    if (captured == null) return;
+                    final path = captured.path;
+                    final docs = ref.read(documentsProvider);
+                    ref.read(documentsProvider.notifier).state =
+                        docs.where((p) => p != path).toList();
+                    final kept = ref.read(keptScannedDocumentsProvider);
+                    ref.read(keptScannedDocumentsProvider.notifier).state =
+                        kept.where((p) => p != path).toList();
+                    ref.read(capturedImageProvider.notifier).state = null;
+                    ref.read(cameraPathProvider.notifier).state = null;
+                    ref.read(lastScanResultProvider.notifier).state = null;
+                  },
+                );
+              },
+            ),
+          ),
+
+          // Scanned documents stack
           Positioned(
             left: 16,
             bottom: 100,
             child: const ScannedDocumentsStack(),
           ),
-          Positioned(
-            right: 8,
-            top: 120,
-            bottom: 140,
-            child: _ZoomSlider(onChanged: _applyZoom),
-          ),
+
+          // Bottom action buttons
           CameraActionButtons(
             onCapture: _takePicture,
             onDiscard: () => Navigator.pop(context),
@@ -262,38 +344,207 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
   }
 }
 
-class _ZoomSlider extends ConsumerWidget {
-  final ValueChanged<double> onChanged;
+// ══════════════════════════════════════════
+//  B&W Frame Overlay
+// ══════════════════════════════════════════
+class _BWFrameOverlay extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: CustomPaint(
+        painter: _BWCornerPainter(color: Colors.white.withValues(alpha: 0.5)),
+      ),
+    );
+  }
+}
 
-  const _ZoomSlider({required this.onChanged});
+class _BWCornerPainter extends CustomPainter {
+  final Color color;
+  _BWCornerPainter({required this.color});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final min = ref.watch(cameraMinZoomProvider);
-    final max = ref.watch(cameraMaxZoomProvider);
-    final zoom = ref.watch(cameraZoomLevelProvider).clamp(min, max);
-    return RotatedBox(
-      quarterTurns: 3,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8),
-        decoration: BoxDecoration(
-          color: Colors.black54,
-          borderRadius: BorderRadius.circular(12),
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0
+      ..strokeCap = StrokeCap.round;
+
+    const len = 40.0;
+    const margin = 24.0;
+
+    // Top-left corner
+    canvas.drawLine(
+      const Offset(margin, margin),
+      const Offset(margin + len, margin),
+      paint,
+    );
+    canvas.drawLine(
+      const Offset(margin, margin),
+      const Offset(margin, margin + len),
+      paint,
+    );
+
+    // Top-right corner
+    canvas.drawLine(
+      Offset(size.width - margin, margin),
+      Offset(size.width - margin - len, margin),
+      paint,
+    );
+    canvas.drawLine(
+      Offset(size.width - margin, margin),
+      Offset(size.width - margin, margin + len),
+      paint,
+    );
+
+    // Bottom-left corner
+    canvas.drawLine(
+      Offset(margin, size.height - margin),
+      Offset(margin + len, size.height - margin),
+      paint,
+    );
+    canvas.drawLine(
+      Offset(margin, size.height - margin),
+      Offset(margin, size.height - margin - len),
+      paint,
+    );
+
+    // Bottom-right corner
+    canvas.drawLine(
+      Offset(size.width - margin, size.height - margin),
+      Offset(size.width - margin - len, size.height - margin),
+      paint,
+    );
+    canvas.drawLine(
+      Offset(size.width - margin, size.height - margin),
+      Offset(size.width - margin, size.height - margin - len),
+      paint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+// ══════════════════════════════════════════
+//  B&W Captured Preview Bar
+// ══════════════════════════════════════════
+class _BWCapturedPreviewBar extends StatelessWidget {
+  final XFile image;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  const _BWCapturedPreviewBar({
+    required this.image,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: const Color(0xDD222222),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.3),
+          width: 1,
         ),
-        child: Row(
-          children: [
-            const Icon(Icons.zoom_out, color: Colors.white, size: 18),
-            Expanded(
-              child: Slider(
-                min: min,
-                max: max,
-                value: zoom,
-                onChanged: (v) => onChanged(v),
-                activeColor: Colors.white,
-                inactiveColor: Colors.white24,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.5),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          // Thumbnail with white border
+          Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.4),
+                width: 1.5,
               ),
             ),
-            const Icon(Icons.zoom_in, color: Colors.white, size: 18),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.file(
+                File(image.path),
+                width: 72,
+                height: 72,
+                fit: BoxFit.cover,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                _BWActionChip(
+                  icon: Icons.edit_rounded,
+                  label: 'Edit',
+                  color: Colors.white,
+                  onPressed: onEdit,
+                ),
+                const SizedBox(width: 8),
+                _BWActionChip(
+                  icon: Icons.delete_outline_rounded,
+                  label: 'Delete',
+                  color: const Color(0xFFCCCCCC),
+                  onPressed: onDelete,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BWActionChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onPressed;
+
+  const _BWActionChip({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onPressed,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.15),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: color.withValues(alpha: 0.3)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: color, size: 16),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: GoogleFonts.inter(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ],
         ),
       ),

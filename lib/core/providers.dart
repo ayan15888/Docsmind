@@ -8,6 +8,9 @@ final cameraPathProvider = StateProvider<String?>((ref) => null);
 // holds the current captured XFile from camera (for preview before save)
 final capturedImageProvider = StateProvider<XFile?>((ref) => null);
 
+// stores the last document edge detection result for the captured image
+final lastScanResultProvider = StateProvider<DetectedDocument?>((ref) => null);
+
 // holds dark mode state
 final darkModeProvider = StateProvider<bool>((ref) => false);
 
@@ -28,3 +31,14 @@ final errorMessageProvider = StateProvider<String?>((ref) => null);
 
 // Document scanner service
 final documentScannerProvider = Provider((ref) => DocumentScannerService());
+
+// ─────────────────────────────────────────────
+//  OpenCV Connection Status Provider
+// ─────────────────────────────────────────────
+
+/// Checks OpenCV native library availability on startup.
+/// Returns an [OpenCVStatus] with connection details.
+final opencvStatusProvider = FutureProvider<OpenCVStatus>((ref) async {
+  final scanner = ref.read(documentScannerProvider);
+  return scanner.checkOpenCVConnection();
+});

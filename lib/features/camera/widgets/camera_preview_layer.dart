@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:docsmind/features/camera/models/camera_filter.dart';
 import 'package:docsmind/features/camera/providers/camera_providers.dart';
+import 'package:docsmind/features/camera/widgets/document_preview_dialog.dart';
 
 /// Full-screen camera preview with optional filter overlay and tap-to-focus.
 class CameraPreviewLayer extends ConsumerStatefulWidget {
@@ -22,6 +23,8 @@ class _CameraPreviewLayerState extends ConsumerState<CameraPreviewLayer> {
     final focusPoint = ref.watch(cameraFocusPointProvider);
     final minZoom = ref.watch(cameraMinZoomProvider);
     final maxZoom = ref.watch(cameraMaxZoomProvider);
+    final hasLiveDoc = ref.watch(liveDocumentDetectedProvider);
+    final liveCorners = ref.watch(liveDocumentCornersProvider);
 
     return controllerAsync.when(
       data: (controller) {
@@ -49,6 +52,14 @@ class _CameraPreviewLayerState extends ConsumerState<CameraPreviewLayer> {
             fit: StackFit.expand,
             children: [
               preview,
+              if (hasLiveDoc)
+                CustomPaint(
+                  painter: DocumentBoundaryPainter(
+                    hasDocument: true,
+                    corners: liveCorners.isNotEmpty ? liveCorners : defaultDocumentCorners(),
+                  ),
+                  size: Size.infinite,
+                ),
               if (focusPoint != null) _FocusIndicator(offset: focusPoint),
             ],
           ),

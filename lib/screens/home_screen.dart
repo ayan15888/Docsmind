@@ -98,6 +98,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Widget build(BuildContext context) {
     final documents = ref.watch(documentsProvider);
     final errorMessage = ref.watch(errorMessageProvider);
+    final opencvStatus = ref.watch(opencvStatusProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -112,9 +113,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       ),
       body: Column(
         children: [
+          // ── OpenCV Developer Status Banner ──
+          _OpenCVStatusBanner(opencvStatus: opencvStatus),
           if (errorMessage != null)
             Container(
-              color: Colors.red.withOpacity(0.2),
+              color: Colors.red.withValues(alpha: 0.2),
               padding: const EdgeInsets.all(8.0),
               child: Row(
                 children: [
@@ -135,11 +138,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 ],
               ),
             ),
-          // if (lastPath != null)
-          //   Padding(
-          //     padding: const EdgeInsets.all(8.0),
-          //     // child: Text('Last photo: $lastPath'),
-          //   ),
           Expanded(
             child: documents.isEmpty
                 ? Center(
@@ -173,6 +171,125 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         ),
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
+    );
+  }
+}
+
+/// Developer status banner showing OpenCV connection state.
+class _OpenCVStatusBanner extends StatelessWidget {
+  final AsyncValue opencvStatus;
+
+  const _OpenCVStatusBanner({required this.opencvStatus});
+
+  @override
+  Widget build(BuildContext context) {
+    return opencvStatus.when(
+      loading: () => Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          color: Colors.amber.shade100,
+          border: Border(bottom: BorderSide(color: Colors.amber.shade300)),
+        ),
+        child: const Row(
+          children: [
+            SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                  strokeWidth: 2, color: Colors.amber),
+            ),
+            SizedBox(width: 10),
+            Text(
+              '🔍  Checking OpenCV connection...',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+            ),
+          ],
+        ),
+      ),
+      error: (err, _) => Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          color: Colors.red.shade50,
+          border: Border(bottom: BorderSide(color: Colors.red.shade200)),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.error_outline, size: 18, color: Colors.red.shade700),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                '❌  OpenCV Error: $err',
+                style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.red.shade800),
+              ),
+            ),
+          ],
+        ),
+      ),
+      data: (status) {
+        final isAvailable = status.isAvailable;
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          decoration: BoxDecoration(
+            color: isAvailable ? Colors.green.shade50 : Colors.red.shade50,
+            border: Border(
+              bottom: BorderSide(
+                color:
+                    isAvailable ? Colors.green.shade200 : Colors.red.shade200,
+              ),
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                isAvailable ? Icons.check_circle : Icons.cancel,
+                size: 18,
+                color:
+                    isAvailable ? Colors.green.shade700 : Colors.red.shade700,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  isAvailable
+                      ? '✅  OpenCV Connected (v${status.version})'
+                      : '❌  OpenCV Disconnected: ${status.error ?? "Unknown"}',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                    color: isAvailable
+                        ? Colors.green.shade800
+                        : Colors.red.shade800,
+                  ),
+                ),
+              ),
+              // Refresh button
+              InkWell(
+                onTap: () {
+                  // Force re-check by invalidating the provider
+                  final container = ProviderScope.containerOf(context);
+                  container.invalidate(opencvStatusProvider);
+                },
+                borderRadius: BorderRadius.circular(12),
+                child: Padding(
+                  padding: const EdgeInsets.all(4),
+                  child: Icon(
+                    Icons.refresh,
+                    size: 18,
+                    color: isAvailable
+                        ? Colors.green.shade600
+                        : Colors.red.shade600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

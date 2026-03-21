@@ -23,3 +23,7 @@ plugins {
 }
 
 include ":app"
+
+// ✅ OpenCV module
+include ":opencv"
+project(":opencv").projectDir = new File(rootProject.projectDir, "opencv")

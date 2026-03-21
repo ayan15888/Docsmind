@@ -4,9 +4,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:docsmind/features/camera/models/camera_filter.dart';
 
 /// Async camera controller; auto-disposes when no longer used.
-final cameraControllerProvider = AsyncNotifierProvider.autoDispose<CameraControllerNotifier, CameraController?>(CameraControllerNotifier.new);
+final cameraControllerProvider = AsyncNotifierProvider.autoDispose<
+    CameraControllerNotifier, CameraController?>(CameraControllerNotifier.new);
 
-class CameraControllerNotifier extends AutoDisposeAsyncNotifier<CameraController?> {
+class CameraControllerNotifier
+    extends AutoDisposeAsyncNotifier<CameraController?> {
   CameraController? _controller;
 
   @override
@@ -21,13 +23,14 @@ class CameraControllerNotifier extends AutoDisposeAsyncNotifier<CameraController
     final cameras = await availableCameras();
     CameraDescription rear;
     try {
-      rear = cameras.firstWhere((c) => c.lensDirection == CameraLensDirection.back);
+      rear = cameras
+          .firstWhere((c) => c.lensDirection == CameraLensDirection.back);
     } catch (_) {
       rear = cameras.first;
     }
     final controller = CameraController(
       rear,
-      ResolutionPreset.high,
+      ResolutionPreset.max, // Full sensor resolution for document scanning
       enableAudio: false,
       imageFormatGroup: ImageFormatGroup.jpeg,
     );
@@ -38,19 +41,24 @@ class CameraControllerNotifier extends AutoDisposeAsyncNotifier<CameraController
 }
 
 /// Flash / torch mode for capture.
-final cameraFlashModeProvider = StateProvider.autoDispose<FlashMode>((ref) => FlashMode.off);
+final cameraFlashModeProvider =
+    StateProvider.autoDispose<FlashMode>((ref) => FlashMode.off);
 
 /// Focus mode (auto vs locked).
-final cameraFocusModeProvider = StateProvider.autoDispose<FocusMode>((ref) => FocusMode.auto);
+final cameraFocusModeProvider =
+    StateProvider.autoDispose<FocusMode>((ref) => FocusMode.auto);
 
 /// Selected preview filter (visual overlay only).
-final cameraFilterProvider = StateProvider.autoDispose<CameraFilterType>((ref) => CameraFilterType.none);
+final cameraFilterProvider =
+    StateProvider.autoDispose<CameraFilterType>((ref) => CameraFilterType.none);
 
 /// Last tap-to-focus point (null = use auto). Used when user taps on preview.
-final cameraFocusPointProvider = StateProvider.autoDispose<Offset?>((ref) => null);
+final cameraFocusPointProvider =
+    StateProvider.autoDispose<Offset?>((ref) => null);
 
 /// When true, camera auto-captures when a document is detected in the frame.
-final cameraAutoCaptureProvider = StateProvider.autoDispose<bool>((ref) => false);
+final cameraAutoCaptureProvider =
+    StateProvider.autoDispose<bool>((ref) => false);
 
 /// Current zoom level (1.0 = no zoom). Clamped to [cameraMinZoomProvider..cameraMaxZoomProvider].
 final cameraZoomLevelProvider = StateProvider.autoDispose<double>((ref) => 1.0);
@@ -58,3 +66,11 @@ final cameraZoomLevelProvider = StateProvider.autoDispose<double>((ref) => 1.0);
 /// Device zoom range (populated after camera initialization).
 final cameraMinZoomProvider = StateProvider.autoDispose<double>((ref) => 1.0);
 final cameraMaxZoomProvider = StateProvider.autoDispose<double>((ref) => 8.0);
+
+/// Live document presence flag while streaming camera frames.
+final liveDocumentDetectedProvider =
+    StateProvider.autoDispose<bool>((ref) => false);
+
+/// Live document corners (normalized 0–1) used for the preview painter.
+final liveDocumentCornersProvider =
+    StateProvider.autoDispose<List<Offset>>((ref) => const []);
