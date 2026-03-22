@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -31,24 +32,22 @@ class CameraControlBar extends ConsumerWidget {
 
     return SafeArea(
       child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        decoration: BoxDecoration(
-          color: _BWColors.black.withValues(alpha: 0.8),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: _BWColors.white.withValues(alpha: 0.2),
-            width: 1,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: _BWColors.black.withValues(alpha: 0.5),
-              blurRadius: 12,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Row(
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(40),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: _BWColors.black.withValues(alpha: 0.4),
+                borderRadius: BorderRadius.circular(40),
+                border: Border.all(
+                  color: _BWColors.white.withValues(alpha: 0.2),
+                  width: 0.5,
+                ),
+              ),
+              child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
             _FlashButton(flashMode: flashMode, enabled: hasController),
@@ -59,6 +58,9 @@ class CameraControlBar extends ConsumerWidget {
             _BWDivider(),
             _AutoCaptureChip(enabled: hasController, isOn: autoCapture),
           ],
+        ),
+            ),
+          ),
         ),
       ),
     );

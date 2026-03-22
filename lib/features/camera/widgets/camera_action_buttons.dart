@@ -231,12 +231,12 @@ class _BWSmallButton extends StatelessWidget {
         HapticFeedback.mediumImpact();
         onPressed();
       },
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(30),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
         decoration: BoxDecoration(
           color: color.withValues(alpha: 0.15),
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(30),
           border: Border.all(
             color: color.withValues(alpha: 0.4),
             width: 1,

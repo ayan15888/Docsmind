@@ -67,8 +67,7 @@ app.*.map.json
 /android/**/generated/
 /android/classes/
 /android/app/build/
-/android/opencv/build/
-/android/opencv/.cxx/
+/android/opencv/
 /android/app/.cxx/
 *.keystore
 !debug.keystore

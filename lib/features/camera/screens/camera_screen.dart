@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui';
 
 import 'package:camera/camera.dart';
 import 'package:docsmind/features/document_scanner/services/document_scanner_service.dart';
@@ -291,35 +292,56 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
 
           // Captured preview bar
           Positioned(
-            left: 16,
-            right: 16,
+            left: 24,
+            right: 24,
             bottom: 160,
             child: Consumer(
               builder: (context, ref, _) {
                 final image = ref.watch(capturedImageProvider);
-                if (image == null) return const SizedBox.shrink();
-                return _BWCapturedPreviewBar(
-                  image: image,
-                  onEdit: () async {
-                    final captured = ref.read(capturedImageProvider);
-                    if (captured == null) return;
-                    final scan = ref.read(lastScanResultProvider);
-                    await _showPreview(captured, scan);
+                return AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 400),
+                  switchInCurve: Curves.easeOutCubic,
+                  switchOutCurve: Curves.easeInCubic,
+                  transitionBuilder: (child, animation) {
+                    return FadeTransition(
+                      opacity: animation,
+                      child: SlideTransition(
+                        position: Tween<Offset>(
+                          begin: const Offset(0, 0.3),
+                          end: Offset.zero,
+                        ).animate(animation),
+                        child: child,
+                      ),
+                    );
                   },
-                  onDelete: () {
-                    final captured = ref.read(capturedImageProvider);
-                    if (captured == null) return;
-                    final path = captured.path;
-                    final docs = ref.read(documentsProvider);
-                    ref.read(documentsProvider.notifier).state =
-                        docs.where((p) => p != path).toList();
-                    final kept = ref.read(keptScannedDocumentsProvider);
-                    ref.read(keptScannedDocumentsProvider.notifier).state =
-                        kept.where((p) => p != path).toList();
-                    ref.read(capturedImageProvider.notifier).state = null;
-                    ref.read(cameraPathProvider.notifier).state = null;
-                    ref.read(lastScanResultProvider.notifier).state = null;
-                  },
+                  child: image == null
+                      ? const SizedBox.shrink(key: ValueKey('empty'))
+                      : SizedBox(
+                          key: ValueKey(image.path),
+                          child: _BWCapturedPreviewBar(
+                            image: image,
+                            onEdit: () async {
+                              final captured = ref.read(capturedImageProvider);
+                              if (captured == null) return;
+                              final scan = ref.read(lastScanResultProvider);
+                              await _showPreview(captured, scan);
+                            },
+                            onDelete: () {
+                              final captured = ref.read(capturedImageProvider);
+                              if (captured == null) return;
+                              final path = captured.path;
+                              final docs = ref.read(documentsProvider);
+                              ref.read(documentsProvider.notifier).state =
+                                  docs.where((p) => p != path).toList();
+                              final kept = ref.read(keptScannedDocumentsProvider);
+                              ref.read(keptScannedDocumentsProvider.notifier).state =
+                                  kept.where((p) => p != path).toList();
+                              ref.read(capturedImageProvider.notifier).state = null;
+                              ref.read(cameraPathProvider.notifier).state = null;
+                              ref.read(lastScanResultProvider.notifier).state = null;
+                            },
+                          ),
+                        ),
                 );
               },
             ),
@@ -327,9 +349,33 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
 
           // Scanned documents stack
           Positioned(
-            left: 16,
-            bottom: 100,
-            child: const ScannedDocumentsStack(),
+            left: 24,
+            bottom: 90,
+            child: Consumer(
+              builder: (context, ref, child) {
+                final docs = ref.watch(documentsProvider);
+                return AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 400),
+                  switchInCurve: Curves.easeOutCubic,
+                  switchOutCurve: Curves.easeInCubic,
+                  transitionBuilder: (child, animation) {
+                    return FadeTransition(
+                      opacity: animation,
+                      child: SlideTransition(
+                        position: Tween<Offset>(
+                          begin: const Offset(-0.2, 0),
+                          end: Offset.zero,
+                        ).animate(animation),
+                        child: child,
+                      ),
+                    );
+                  },
+                  child: docs.isEmpty
+                      ? const SizedBox.shrink(key: ValueKey('empty'))
+                      : const ScannedDocumentsStack(key: ValueKey('stack')),
+                );
+              },
+            ),
           ),
 
           // Bottom action buttons
@@ -442,60 +488,58 @@ class _BWCapturedPreviewBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: const Color(0xDD222222),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: Colors.white.withValues(alpha: 0.3),
-          width: 1,
-        ),
-        boxShadow: [
-          BoxShadow(
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(40),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
             color: Colors.black.withValues(alpha: 0.5),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          // Thumbnail with white border
-          Container(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(
-                color: Colors.white.withValues(alpha: 0.4),
-                width: 1.5,
-              ),
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: Image.file(
-                File(image.path),
-                width: 72,
-                height: 72,
-                fit: BoxFit.cover,
-              ),
+            borderRadius: BorderRadius.circular(40),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.15),
+              width: 0.5,
             ),
           ),
-          const SizedBox(width: 12),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Thumbnail
+          GestureDetector(
+            onTap: onEdit,
+            child: Container(
+              width: 50,
+              height: 50,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: Colors.white,
+                  width: 1.5,
+                ),
+                image: DecorationImage(
+                  image: FileImage(File(image.path)),
+                  fit: BoxFit.cover,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 16),
           Expanded(
             child: Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
                 _BWActionChip(
-                  icon: Icons.edit_rounded,
-                  label: 'Edit',
+                  icon: Icons.tune_rounded,
+                  label: 'Adjust',
                   color: Colors.white,
                   onPressed: onEdit,
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 4),
                 _BWActionChip(
                   icon: Icons.delete_outline_rounded,
-                  label: 'Delete',
-                  color: const Color(0xFFCCCCCC),
+                  label: '',
+                  color: Colors.white54,
                   onPressed: onDelete,
                 ),
               ],
@@ -503,9 +547,12 @@ class _BWCapturedPreviewBar extends StatelessWidget {
           ),
         ],
       ),
+      ),
+      ),
     );
   }
 }
+
 
 class _BWActionChip extends StatelessWidget {
   final IconData icon;
@@ -524,27 +571,25 @@ class _BWActionChip extends StatelessWidget {
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onPressed,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.15),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: color.withValues(alpha: 0.3)),
-        ),
+      borderRadius: BorderRadius.circular(30),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, color: color, size: 16),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: GoogleFonts.inter(
-                color: Colors.white,
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
+            Icon(icon, color: color, size: 22),
+            if (label.isNotEmpty) ...[
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: GoogleFonts.inter(
+                  color: color,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w400,
+                  letterSpacing: 0.5,
+                ),
               ),
-            ),
+            ]
           ],
         ),
       ),
