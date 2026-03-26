@@ -10,8 +10,17 @@ import org.opencv.core.*
 import org.opencv.imgcodecs.Imgcodecs
 import org.opencv.imgproc.Imgproc
 import java.io.File
+import java.io.FileInputStream
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import java.nio.channels.FileChannel
+import io.flutter.FlutterInjector
+import org.tensorflow.lite.Interpreter
+import android.media.ExifInterface
 
 class MainActivity : FlutterActivity() {
+
+    private var tfliteInterpreter: Interpreter? = null
 
     companion object {
         private const val TAG = "DocsMind_OpenCV"
@@ -97,7 +106,11 @@ class MainActivity : FlutterActivity() {
                         }
                         try {
                             val t = System.currentTimeMillis()
-                            val doc = detectDocument(path)
+                            var doc = detectDocumentWithYOLO(path)
+                            if (doc["isDetected"] as Boolean == false) {
+                                Log.d(TAG, "YOLO inference failed or no doc found, falling back to Canny Edge detection")
+                                doc = detectDocument(path)
+                            }
                             Log.d(TAG, "detectDocumentEdges completed in ${System.currentTimeMillis() - t}ms")
                             result.success(doc)
                         } catch (e: Exception) {
@@ -150,11 +163,172 @@ class MainActivity : FlutterActivity() {
     }
 
     // ═══════════════════════════════════════════════
+    //  0. YOLOv8 TFLite INTEGRATION
+    // ═══════════════════════════════════════════════
+
+    private fun getTfliteInterpreter(): Interpreter? {
+        if (tfliteInterpreter != null) return tfliteInterpreter
+        try {
+            val loader = FlutterInjector.instance().flutterLoader()
+            val assetKey = loader.getLookupKeyForAsset("assets/models/yolov8n_float32.tflite")
+            val assetManager = context.assets
+            val fd = assetManager.openFd(assetKey)
+            val inputStream = FileInputStream(fd.fileDescriptor)
+            val fileChannel = inputStream.channel
+            val mappedByteBuffer = fileChannel.map(FileChannel.MapMode.READ_ONLY, fd.startOffset, fd.declaredLength)
+            
+            val options = Interpreter.Options()
+            options.setNumThreads(4)
+            tfliteInterpreter = Interpreter(mappedByteBuffer, options)
+            Log.d(TAG, "✅ TFLite Interpreter initialized (yolov8n_float32.tflite)")
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Failed to load TFLite model", e)
+        }
+        return tfliteInterpreter
+    }
+
+    private fun loadImageWithEXIF(path: String): Mat {
+        val src = Imgcodecs.imread(path)
+        if (src.empty()) return src
+
+        try {
+            val exif = ExifInterface(path)
+            val orientation = exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+            
+            val rotated = Mat()
+            when (orientation) {
+                ExifInterface.ORIENTATION_ROTATE_90 -> {
+                    Core.rotate(src, rotated, Core.ROTATE_90_CLOCKWISE)
+                    src.release()
+                    return rotated
+                }
+                ExifInterface.ORIENTATION_ROTATE_180 -> {
+                    Core.rotate(src, rotated, Core.ROTATE_180)
+                    src.release()
+                    return rotated
+                }
+                ExifInterface.ORIENTATION_ROTATE_270 -> {
+                    Core.rotate(src, rotated, Core.ROTATE_90_COUNTERCLOCKWISE)
+                    src.release()
+                    return rotated
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to read EXIF for image $path", e)
+        }
+        return src
+    }
+
+    private fun detectDocumentWithYOLO(path: String): Map<String, Any?> {
+        val interpreter = getTfliteInterpreter()
+            ?: return mapOf("isDetected" to false, "corners" to emptyList<List<Double>>())
+
+        val src = loadImageWithEXIF(path)
+        if (src.empty()) {
+            return mapOf("isDetected" to false, "corners" to emptyList<List<Double>>())
+        }
+
+        val origW = src.cols().toDouble()
+        val origH = src.rows().toDouble()
+
+        // 1. Preprocess: Resize to 640x640 (standard YOLOv8) and normalize
+        val inputSize = 640
+        val resized = Mat()
+        Imgproc.resize(src, resized, Size(inputSize.toDouble(), inputSize.toDouble()))
+        
+        // Convert BGR to RGB
+        Imgproc.cvtColor(resized, resized, Imgproc.COLOR_BGR2RGB)
+
+        // CreateByteBuffer: 1 * 640 * 640 * 3 * 4 bytes (float32)
+        val byteBuffer = ByteBuffer.allocateDirect(1 * inputSize * inputSize * 3 * 4)
+        byteBuffer.order(ByteOrder.nativeOrder())
+
+        val floatArray = FloatArray(inputSize * inputSize * 3)
+        var index = 0
+        for (y in 0 until inputSize) {
+            for (x in 0 until inputSize) {
+                val pixel = resized.get(y, x)
+                // Normalize to [0...1]
+                floatArray[index++] = (pixel[0] / 255.0).toFloat() // R
+                floatArray[index++] = (pixel[1] / 255.0).toFloat() // G
+                floatArray[index++] = (pixel[2] / 255.0).toFloat() // B
+            }
+        }
+        byteBuffer.asFloatBuffer().put(floatArray)
+
+        // 2. Inference
+        // Note: Output tensor shape depends on the exact YOLOv8 export model (Pose/OBB/Seg/Box).
+        // Standard YOLOv8 object detection shape: [1, 5 (or num_classes + 4), 8400]
+        // Example for standard Box detection assuming 1 class (Document):
+        val numClasses = 1
+        val numOutputs = 4 + numClasses
+        val numAnchors = 8400
+        val outputBuffer = Array(1) { Array(numOutputs) { FloatArray(numAnchors) } }
+        
+        try {
+            val t = System.currentTimeMillis()
+            interpreter.run(byteBuffer, outputBuffer)
+            Log.d(TAG, "TFLite inference took ${System.currentTimeMillis() - t}ms")
+        } catch (e: Exception) {
+            Log.e(TAG, "TFLite inference failed", e)
+            src.release()
+            resized.release()
+            return mapOf("isDetected" to false, "corners" to emptyList<List<Double>>())
+        }
+
+        // 3. Postprocess
+        // Find the anchor with the highest confidence
+        var bestConf = 0f
+        var bestIndex = -1
+        for (i in 0 until numAnchors) {
+            val conf = outputBuffer[0][4][i] // Assuming class 0 confidence is at index 4
+            if (conf > bestConf) {
+                bestConf = conf
+                bestIndex = i
+            }
+        }
+
+        // Apply a confidence threshold
+        if (bestIndex != -1 && bestConf > 0.5f) {
+            // YOLO outputs cx, cy, w, h usually, normalized or relative to 640.
+            val cx = outputBuffer[0][0][bestIndex]
+            val cy = outputBuffer[0][1][bestIndex]
+            val w  = outputBuffer[0][2][bestIndex]
+            val h  = outputBuffer[0][3][bestIndex]
+
+            // Convert back to original image percentage coords [0..1]
+            // cx, cy, w, h are in [0..640], so divide by 640
+            val xMin = ((cx - w / 2) / inputSize.toFloat()).coerceIn(0f, 1f).toDouble()
+            val yMin = ((cy - h / 2) / inputSize.toFloat()).coerceIn(0f, 1f).toDouble()
+            val xMax = ((cx + w / 2) / inputSize.toFloat()).coerceIn(0f, 1f).toDouble()
+            val yMax = ((cy + h / 2) / inputSize.toFloat()).coerceIn(0f, 1f).toDouble()
+
+            // Return 4 corners of the bounding box
+            val corners = listOf(
+                listOf(xMin, yMin), // TL
+                listOf(xMax, yMin), // TR
+                listOf(xMax, yMax), // BR
+                listOf(xMin, yMax)  // BL
+            )
+
+            Log.d(TAG, "YOLO found document with confidence $bestConf at $corners")
+            src.release()
+            resized.release()
+            return mapOf("isDetected" to true, "corners" to corners)
+        }
+
+        Log.d(TAG, "YOLO did not find any confident document (max conf: $bestConf)")
+        src.release()
+        resized.release()
+        return mapOf("isDetected" to false, "corners" to emptyList<List<Double>>())
+    }
+
+    // ═══════════════════════════════════════════════
     //  1. DOCUMENT DETECTION (Canny + Contour)
     // ═══════════════════════════════════════════════
 
     private fun detectDocument(path: String): Map<String, Any?> {
-        val src = Imgcodecs.imread(path)
+        val src = loadImageWithEXIF(path)
         if (src.empty()) {
             Log.w(TAG, "[detect] Failed to read image: $path")
             return mapOf("isDetected" to false, "corners" to emptyList<List<Double>>())
@@ -275,7 +449,7 @@ class MainActivity : FlutterActivity() {
     // ═══════════════════════════════════════════════
 
     private fun processDocument(path: String, corners: List<List<Double>>, filter: String): String {
-        val src = Imgcodecs.imread(path)
+        val src = loadImageWithEXIF(path)
         if (src.empty()) throw Exception("Cannot read image: $path")
 
         val w = src.cols().toDouble()
@@ -437,7 +611,7 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun applyImageFilter(path: String, filter: String): String {
-        val src = Imgcodecs.imread(path)
+        val src = loadImageWithEXIF(path)
         if (src.empty()) throw Exception("Cannot read image: $path")
 
         val enhanced = applyEnhancement(src, filter)

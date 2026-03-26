@@ -57,11 +57,15 @@ android {
     packagingOptions {
         pickFirst '**/*.so'
     }
+    
+    aaptOptions {
+        noCompress "tflite"
+    }
 }
-
 
 dependencies {
     implementation project(':opencv')
+    implementation 'org.tensorflow:tensorflow-lite:2.14.0'
 }
 
 flutter {
