@@ -18,18 +18,10 @@ class DocumentBoundaryPainter extends CustomPainter {
     if (!hasDocument) return;
 
     final paint = Paint()
-      ..color = Colors.green
-      ..strokeWidth = 3.0
+      ..color = Colors.white
+      ..strokeWidth = 2.0
+      ..strokeJoin = StrokeJoin.round
       ..style = PaintingStyle.stroke;
-
-    final cornerPaint = Paint()
-      ..color = Colors.green
-      ..strokeWidth = 5.0
-      ..style = PaintingStyle.stroke;
-
-    final cornerFillPaint = Paint()
-      ..color = Colors.green
-      ..style = PaintingStyle.fill;
 
     if (corners.isNotEmpty && corners.length >= 4) {
       final scaledCorners = <Offset>[];
@@ -44,11 +36,14 @@ class DocumentBoundaryPainter extends CustomPainter {
         path.lineTo(scaledCorners[i].dx, scaledCorners[i].dy);
       }
       path.close();
+
+      canvas.save();
+      final outerPath = Path()..addRect(Rect.fromLTWH(0, 0, size.width, size.height));
+      final dimmedPath = Path.combine(PathOperation.difference, outerPath, path);
+      canvas.drawPath(dimmedPath, Paint()..color = Colors.black.withValues(alpha: 0.6));
+      canvas.restore();
+
       canvas.drawPath(path, paint);
-      for (final corner in scaledCorners) {
-        canvas.drawCircle(corner, 8, cornerFillPaint);
-        canvas.drawCircle(corner, 8, cornerPaint);
-      }
     } else {
       const padding = 40.0;
       final rect = Rect.fromLTWH(
@@ -58,15 +53,22 @@ class DocumentBoundaryPainter extends CustomPainter {
         size.height - (padding * 2),
       );
       canvas.drawRect(rect, paint);
-      const cornerSize = 30.0;
-      canvas.drawLine(Offset(rect.left, rect.top), Offset(rect.left + cornerSize, rect.top), cornerPaint);
-      canvas.drawLine(Offset(rect.left, rect.top), Offset(rect.left, rect.top + cornerSize), cornerPaint);
-      canvas.drawLine(Offset(rect.right, rect.top), Offset(rect.right - cornerSize, rect.top), cornerPaint);
-      canvas.drawLine(Offset(rect.right, rect.top), Offset(rect.right, rect.top + cornerSize), cornerPaint);
-      canvas.drawLine(Offset(rect.left, rect.bottom), Offset(rect.left + cornerSize, rect.bottom), cornerPaint);
-      canvas.drawLine(Offset(rect.left, rect.bottom), Offset(rect.left, rect.bottom - cornerSize), cornerPaint);
-      canvas.drawLine(Offset(rect.right, rect.bottom), Offset(rect.right - cornerSize, rect.bottom), cornerPaint);
-      canvas.drawLine(Offset(rect.right, rect.bottom), Offset(rect.right, rect.bottom - cornerSize), cornerPaint);
+      
+      final cornerPaint = Paint()
+        ..color = Colors.white
+        ..strokeWidth = 4.0
+        ..strokeCap = StrokeCap.round
+        ..style = PaintingStyle.stroke;
+
+      const cornerSize = 24.0;
+      canvas.drawLine(rect.topLeft, rect.topLeft + const Offset(cornerSize, 0), cornerPaint);
+      canvas.drawLine(rect.topLeft, rect.topLeft + const Offset(0, cornerSize), cornerPaint);
+      canvas.drawLine(rect.topRight, rect.topRight + const Offset(-cornerSize, 0), cornerPaint);
+      canvas.drawLine(rect.topRight, rect.topRight + const Offset(0, cornerSize), cornerPaint);
+      canvas.drawLine(rect.bottomLeft, rect.bottomLeft + const Offset(cornerSize, 0), cornerPaint);
+      canvas.drawLine(rect.bottomLeft, rect.bottomLeft + const Offset(0, -cornerSize), cornerPaint);
+      canvas.drawLine(rect.bottomRight, rect.bottomRight + const Offset(-cornerSize, 0), cornerPaint);
+      canvas.drawLine(rect.bottomRight, rect.bottomRight + const Offset(0, -cornerSize), cornerPaint);
     }
   }
 
@@ -169,10 +171,30 @@ class _InteractivePreviewDialogState extends State<InteractivePreviewDialog> {
   @override
   Widget build(BuildContext context) {
     return Dialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      backgroundColor: const Color(0xFF121212),
+      surfaceTintColor: Colors.transparent,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      clipBehavior: Clip.antiAlias,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          // Header
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            color: const Color(0xFF1E1E1E),
+            width: double.infinity,
+            alignment: Alignment.center,
+            child: const Text(
+              'Adjust Boundaries',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.5,
+              ),
+            ),
+          ),
           Expanded(
             child: LayoutBuilder(
               builder: (context, constraints) {
@@ -204,17 +226,40 @@ class _InteractivePreviewDialogState extends State<InteractivePreviewDialog> {
                         Positioned(
                           left: (corners[i].dx <= 1.0 ? corners[i].dx * w : corners[i].dx) - _handleSize / 2,
                           top: (corners[i].dy <= 1.0 ? corners[i].dy * h : corners[i].dy) - _handleSize / 2,
-                          child: Container(
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 150),
                             width: _handleSize,
                             height: _handleSize,
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
                               color: draggedCornerIndex == i
-                                  ? Colors.blue.withValues(alpha: 0.9)
-                                  : Colors.green.withValues(alpha: 0.8),
-                              border: Border.all(color: Colors.white, width: 2),
+                                  ? Colors.white
+                                  : Colors.white.withValues(alpha: 0.2),
+                              border: Border.all(
+                                color: Colors.white, 
+                                width: draggedCornerIndex == i ? 0 : 2
+                              ),
+                              boxShadow: [
+                                if (draggedCornerIndex == i)
+                                  BoxShadow(
+                                    color: Colors.white.withValues(alpha: 0.5), 
+                                    blurRadius: 10, 
+                                    spreadRadius: 2,
+                                  )
+                              ],
                             ),
-                            child: const Icon(Icons.edit, color: Colors.white, size: 20),
+                            child: draggedCornerIndex == i
+                                ? Center(
+                                    child: Container(
+                                      width: 8,
+                                      height: 8,
+                                      decoration: const BoxDecoration(
+                                        color: Colors.black,
+                                        shape: BoxShape.circle,
+                                      ),
+                                    ),
+                                  )
+                                : null,
                           ),
                         ),
                     ],
@@ -223,45 +268,64 @@ class _InteractivePreviewDialogState extends State<InteractivePreviewDialog> {
               },
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: Container(
-              color: Colors.green.withValues(alpha: 0.2),
-              padding: const EdgeInsets.all(8.0),
-              child: const Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.check, color: Colors.green),
-                  SizedBox(width: 8),
-                  Text(
-                    'Drag corners to adjust, then tap Keep',
-                    style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold),
-                  ),
-                ],
-              ),
+          Container(
+            color: const Color(0xFF1E1E1E),
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+            child: Column(
+              children: [
+                const Text(
+                  'Drag the corners to align with the document edges',
+                  style: TextStyle(color: Colors.white54, fontSize: 13),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 20),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    TextButton(
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.white70,
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                      ),
+                      onPressed: () {
+                        Navigator.pop(context);
+                        widget.onDiscard();
+                      },
+                      child: const Text(
+                        'DISCARD',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 1.2,
+                        ),
+                      ),
+                    ),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.white,
+                        foregroundColor: Colors.black,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(30),
+                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
+                      ),
+                      onPressed: () {
+                        widget.onKeep(corners);
+                      },
+                      child: const Text(
+                        'KEEP',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 1.2,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
-          ),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              ElevatedButton.icon(
-                onPressed: () {
-                  Navigator.pop(context);
-                  widget.onDiscard();
-                },
-                icon: const Icon(Icons.close),
-                label: const Text('Discard'),
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-              ),
-              ElevatedButton.icon(
-                onPressed: () {
-                  widget.onKeep(corners);
-                },
-                icon: const Icon(Icons.check),
-                label: const Text('Keep'),
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-              ),
-            ],
           ),
         ],
       ),

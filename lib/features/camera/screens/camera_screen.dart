@@ -11,6 +11,7 @@ import 'package:docsmind/core/providers.dart';
 import 'package:docsmind/features/camera/providers/camera_providers.dart';
 import 'package:docsmind/features/camera/widgets/camera_control_bar.dart';
 import 'package:docsmind/features/camera/widgets/camera_preview_layer.dart';
+import 'package:docsmind/features/camera/widgets/camera_mode_slider.dart';
 import 'package:docsmind/features/camera/widgets/camera_action_buttons.dart';
 import 'package:docsmind/features/camera/widgets/document_preview_dialog.dart';
 import 'package:docsmind/features/camera/widgets/scanned_documents_stack.dart';
@@ -222,11 +223,14 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
         detectedDoc: detectedDoc,
         onKeep: (corners) async {
           final scanner = ref.read(documentScannerProvider);
-          // Use native OpenCV for perspective transform + whiteboard enhancement
+          final mode = ref.read(cameraDocumentModeProvider).name;
+          
+          // Use native OpenCV for perspective transform + aspect ratio enforcement
           final processedPath = await scanner.processDocumentNative(
             image.path,
             corners,
             filter: 'whiteboard',
+            documentMode: mode,
           );
           final pathToSave = processedPath;
 
@@ -350,7 +354,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
           // Scanned documents stack
           Positioned(
             left: 24,
-            bottom: 90,
+            bottom: 170,
             child: Consumer(
               builder: (context, ref, child) {
                 final docs = ref.watch(documentsProvider);
@@ -376,6 +380,14 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
                 );
               },
             ),
+          ),
+
+          // Document mode slider (A4, A3, Business Card, etc)
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 110,
+            child: const CameraModeSlider(),
           ),
 
           // Bottom action buttons

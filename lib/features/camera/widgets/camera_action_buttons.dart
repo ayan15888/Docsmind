@@ -1,18 +1,17 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 // ══════════════════════════════════════════
 //  Black & White Color Palette (shared)
 // ══════════════════════════════════════════
 class _BWColors {
   static const Color black = Colors.black;
-  static const Color darkGray = Color(0xFF222222);
   static const Color lightGray = Color(0xFFEEEEEE);
   static const Color white = Colors.white;
 }
 
-/// Bottom action buttons: Discard, Capture, Keep — minimalist B&W style.
+/// Bottom action bar: Discard | Capture | Done — compact, icon-only.
 class CameraActionButtons extends StatelessWidget {
   const CameraActionButtons({
     super.key,
@@ -27,55 +26,66 @@ class CameraActionButtons extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final bottomPad = MediaQuery.of(context).padding.bottom;
     return Positioned(
       left: 0,
       right: 0,
       bottom: 0,
-      child: Container(
-        padding:
-            const EdgeInsets.only(left: 24, right: 24, bottom: 32, top: 20),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Colors.transparent,
-              _BWColors.black.withValues(alpha: 0.7),
-              _BWColors.black.withValues(alpha: 0.95),
-            ],
-            stops: const [0.0, 0.3, 1.0],
-          ),
+      child: ClipRRect(
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 16.0, sigmaY: 16.0),
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.55),
+            ),
+            padding: EdgeInsets.only(
+          left: 24,
+          right: 24,
+          top: 18,
+          bottom: bottomPad > 0 ? bottomPad + 8 : 20,
         ),
         child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            // Discard button
-            _BWSmallButton(
-              icon: Icons.close_rounded,
-              label: 'Discard',
-              color: _BWColors.lightGray,
-              onPressed: onDiscard,
+            // Discard — left side
+            Expanded(
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: _BWIconButton(
+                  icon: Icons.close_rounded,
+                  onPressed: onDiscard,
+                  isDestructive: true,
+                ),
+              ),
             ),
 
-            // Center capture button
+            // Capture — perfectly centred
             _BWCaptureButton(onPressed: onCapture),
 
-            // Keep scanning button
-            _BWSmallButton(
-              icon: Icons.check_rounded,
-              label: 'Done',
-              color: _BWColors.white,
-              onPressed: onKeepScanning,
+            // Done — right side
+            Expanded(
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: _BWIconButton(
+                  icon: Icons.check_rounded,
+                  onPressed: onKeepScanning,
+                  isDestructive: false,
+                ),
+              ),
             ),
           ],
+        ),
+      ),
         ),
       ),
     );
   }
 }
 
-/// The big black & white capture button with concentric rings
+// ══════════════════════════════════════════
+//  Capture Button
+// ══════════════════════════════════════════
 class _BWCaptureButton extends StatefulWidget {
   final VoidCallback onPressed;
   const _BWCaptureButton({required this.onPressed});
@@ -118,30 +128,14 @@ class _BWCaptureButtonState extends State<_BWCaptureButton>
         _controller.reverse();
         widget.onPressed();
       },
-      onTapCancel: () {
-        _controller.reverse();
-      },
+      onTapCancel: () => _controller.reverse(),
       child: AnimatedBuilder(
         animation: _scaleAnimation,
-        builder: (context, child) {
-          return Transform.scale(
-            scale: _scaleAnimation.value,
-            child: child,
-          );
-        },
-        child: Container(
-          width: 80,
-          height: 80,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: RadialGradient(
-              colors: [
-                _BWColors.white.withValues(alpha: 0.15),
-                Colors.transparent,
-              ],
-              radius: 1.5,
-            ),
-          ),
+        builder: (context, child) =>
+            Transform.scale(scale: _scaleAnimation.value, child: child),
+        child: SizedBox(
+          width: 76,
+          height: 76,
           child: Stack(
             alignment: Alignment.center,
             children: [
@@ -157,29 +151,29 @@ class _BWCaptureButtonState extends State<_BWCaptureButton>
                   ),
                   boxShadow: [
                     BoxShadow(
-                      color: _BWColors.white.withValues(alpha: 0.3),
-                      blurRadius: 16,
-                      spreadRadius: 2,
+                      color: _BWColors.white.withValues(alpha: 0.25),
+                      blurRadius: 14,
+                      spreadRadius: 1,
                     ),
                   ],
                 ),
               ),
               // Inner ring
               Container(
-                width: 64,
-                height: 64,
+                width: 62,
+                height: 62,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   border: Border.all(
-                    color: _BWColors.lightGray.withValues(alpha: 0.5),
+                    color: _BWColors.lightGray.withValues(alpha: 0.4),
                     width: 1.5,
                   ),
                 ),
               ),
-              // Center button
+              // Solid centre disc
               Container(
-                width: 56,
-                height: 56,
+                width: 52,
+                height: 52,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   gradient: RadialGradient(
@@ -190,16 +184,11 @@ class _BWCaptureButtonState extends State<_BWCaptureButton>
                   ),
                   boxShadow: [
                     BoxShadow(
-                      color: _BWColors.black.withValues(alpha: 0.3),
-                      blurRadius: 8,
+                      color: _BWColors.black.withValues(alpha: 0.25),
+                      blurRadius: 6,
                       offset: const Offset(0, 2),
                     ),
                   ],
-                ),
-                child: Icon(
-                  Icons.circle,
-                  color: _BWColors.darkGray.withValues(alpha: 0.6),
-                  size: 16,
                 ),
               ),
             ],
@@ -210,54 +199,40 @@ class _BWCaptureButtonState extends State<_BWCaptureButton>
   }
 }
 
-/// Small B&W action button (discard / keep)
-class _BWSmallButton extends StatelessWidget {
+// ══════════════════════════════════════════
+//  Icon-only Action Button
+// ══════════════════════════════════════════
+class _BWIconButton extends StatelessWidget {
   final IconData icon;
-  final String label;
-  final Color color;
   final VoidCallback onPressed;
+  final bool isDestructive;
 
-  const _BWSmallButton({
+  const _BWIconButton({
     required this.icon,
-    required this.label,
-    required this.color,
     required this.onPressed,
+    required this.isDestructive,
   });
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
+    final color = isDestructive
+        ? const Color(0xFFFF5C5C)
+        : _BWColors.white;
+
+    return GestureDetector(
       onTap: () {
         HapticFeedback.mediumImpact();
         onPressed();
       },
-      borderRadius: BorderRadius.circular(30),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+        width: 52,
+        height: 52,
         decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.15),
-          borderRadius: BorderRadius.circular(30),
-          border: Border.all(
-            color: color.withValues(alpha: 0.4),
-            width: 1,
-          ),
+          shape: BoxShape.circle,
+          color: color.withValues(alpha: 0.12),
+          border: Border.all(color: color.withValues(alpha: 0.45), width: 1),
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, color: color, size: 22),
-            const SizedBox(height: 3),
-            Text(
-              label,
-              style: GoogleFonts.inter(
-                color: _BWColors.white.withValues(alpha: 0.9),
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 1.0,
-              ),
-            ),
-          ],
-        ),
+        child: Icon(icon, color: color, size: 24),
       ),
     );
   }

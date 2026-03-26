@@ -74,3 +74,9 @@ final liveDocumentDetectedProvider =
 /// Live document corners (normalized 0–1) used for the preview painter.
 final liveDocumentCornersProvider =
     StateProvider.autoDispose<List<Offset>>((ref) => const []);
+
+/// Document scanning mode (determines aspect ratio or template).
+enum DocumentMode { auto, a4, a3, businessCard }
+
+final cameraDocumentModeProvider =
+    StateProvider.autoDispose<DocumentMode>((ref) => DocumentMode.auto);

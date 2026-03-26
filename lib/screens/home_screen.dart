@@ -6,24 +6,173 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:docsmind/core/providers.dart';
 import 'package:docsmind/screens/camera_screen.dart';
-import 'package:docsmind/features/settings/services/settings_service.dart';
+import 'package:docsmind/screens/compress_screen.dart';
+import 'package:docsmind/screens/settings_screen.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:docsmind/constants/app_constants.dart';
+import 'package:docsmind/features/settings/services/settings_service.dart';
 
-class HomeScreen extends ConsumerStatefulWidget {
+// ══════════════════════════════════════════
+//  Tab Index Provider
+// ══════════════════════════════════════════
+final homeTabIndexProvider = StateProvider<int>((ref) => 0);
+
+// ══════════════════════════════════════════
+//  HomeScreen — Tab Shell
+// ══════════════════════════════════════════
+class HomeScreen extends ConsumerWidget {
   const HomeScreen({Key? key}) : super(key: key);
 
   @override
-  ConsumerState<HomeScreen> createState() => _HomeScreenState();
+  Widget build(BuildContext context, WidgetRef ref) {
+    final currentIndex = ref.watch(homeTabIndexProvider);
+
+    const screens = [
+      _DocumentsTab(),
+      CompressScreen(),
+      SettingsScreen(),
+    ];
+
+    return Scaffold(
+      body: IndexedStack(
+        index: currentIndex,
+        children: screens,
+      ),
+      bottomNavigationBar: _AppBottomNavBar(
+        currentIndex: currentIndex,
+        onTap: (i) {
+          HapticFeedback.selectionClick();
+          ref.read(homeTabIndexProvider.notifier).state = i;
+        },
+      ),
+    );
+  }
 }
 
-class _HomeScreenState extends ConsumerState<HomeScreen> {
+// ══════════════════════════════════════════
+//  Custom Animated Bottom Nav Bar
+// ══════════════════════════════════════════
+class _AppBottomNavBar extends StatelessWidget {
+  final int currentIndex;
+  final ValueChanged<int> onTap;
+
+  const _AppBottomNavBar({
+    required this.currentIndex,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    const items = [
+      (icon: Icons.folder_outlined, activeIcon: Icons.folder_rounded, label: 'Documents'),
+      (icon: Icons.compress_outlined, activeIcon: Icons.compress_rounded, label: 'Compress'),
+      (icon: Icons.settings_outlined, activeIcon: Icons.settings_rounded, label: 'Settings'),
+    ];
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.06),
+            blurRadius: 20,
+            offset: const Offset(0, -4),
+          ),
+        ],
+      ),
+      child: SafeArea(
+        child: SizedBox(
+          height: 64,
+          child: Row(
+            children: [
+              for (int i = 0; i < items.length; i++)
+                Expanded(
+                  child: _NavBarItem(
+                    icon: items[i].icon,
+                    activeIcon: items[i].activeIcon,
+                    label: items[i].label,
+                    isActive: currentIndex == i,
+                    onTap: () => onTap(i),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _NavBarItem extends StatelessWidget {
+  final IconData icon;
+  final IconData activeIcon;
+  final String label;
+  final bool isActive;
+  final VoidCallback onTap;
+
+  const _NavBarItem({
+    required this.icon,
+    required this.activeIcon,
+    required this.label,
+    required this.isActive,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOutCubic,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            decoration: BoxDecoration(
+              color: isActive
+                  ? AppColors.primary.withValues(alpha: 0.12)
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Icon(
+              isActive ? activeIcon : icon,
+              color: isActive ? AppColors.primary : Colors.grey.shade400,
+              size: 24,
+            ),
+          ),
+          const SizedBox(height: 2),
+          AnimatedDefaultTextStyle(
+            duration: const Duration(milliseconds: 200),
+            style: GoogleFonts.inter(
+              fontSize: 11,
+              fontWeight: isActive ? FontWeight.w700 : FontWeight.w400,
+              color: isActive ? AppColors.primary : Colors.grey.shade400,
+            ),
+            child: Text(label),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ══════════════════════════════════════════
+//  Documents Tab
+// ══════════════════════════════════════════
+class _DocumentsTab extends ConsumerStatefulWidget {
+  const _DocumentsTab();
+
+  @override
+  ConsumerState<_DocumentsTab> createState() => _DocumentsTabState();
+}
+
+class _DocumentsTabState extends ConsumerState<_DocumentsTab> {
   Timer? _holdTimer;
 
   void _handleLongPressStart(LongPressStartDetails details) {
-    _holdTimer = Timer(const Duration(milliseconds: 500), () {
-      _showOptions();
-    });
+    _holdTimer = Timer(const Duration(milliseconds: 500), _showOptions);
   }
 
   void _handleLongPressEnd(LongPressEndDetails details) {
@@ -88,7 +237,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
-  Future<void> _openCamera(WidgetRef ref, BuildContext context) async {
+  Future<void> _openCamera() async {
     final status = await Permission.camera.status;
     if (!status.isGranted) {
       final result = await Permission.camera.request();
@@ -100,17 +249,32 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         return;
       }
     }
-
     if (mounted) {
       Navigator.push(
         context,
-        MaterialPageRoute(builder: (context) => const CameraScreen()),
+        PageRouteBuilder(
+          transitionDuration: const Duration(milliseconds: 350),
+          reverseTransitionDuration: const Duration(milliseconds: 250),
+          pageBuilder: (context, animation, secondaryAnimation) =>
+              const CameraScreen(),
+          transitionsBuilder: (context, animation, secondaryAnimation, child) {
+            final curvedAnimation = CurvedAnimation(
+              parent: animation,
+              curve: Curves.easeOutQuart,
+              reverseCurve: Curves.easeInQuart,
+            );
+
+            return SlideTransition(
+              position: Tween<Offset>(
+                begin: const Offset(0, 1.0),
+                end: Offset.zero,
+              ).animate(curvedAnimation),
+              child: child,
+            );
+          },
+        ),
       );
     }
-  }
-
-  void _showSettings() {
-    SettingsService.showSettingsDialog(context);
   }
 
   @override
@@ -137,15 +301,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             actions: [
               IconButton(
                 icon: const Icon(Icons.settings_outlined, color: Colors.white),
-                onPressed: _showSettings,
+                onPressed: () => SettingsService.showSettingsDialog(context),
               ),
             ],
           ),
-          
+
           SliverToBoxAdapter(
             child: _OpenCVStatusBanner(opencvStatus: opencvStatus),
           ),
-          
+
           if (errorMessage != null)
             SliverToBoxAdapter(
               child: Container(
@@ -176,7 +340,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 ),
               ),
             ),
-            
+
           if (documents.isEmpty)
             SliverFillRemaining(
               hasScrollBody: false,
@@ -218,25 +382,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   crossAxisCount: 2,
                   crossAxisSpacing: 16,
                   mainAxisSpacing: 16,
-                  childAspectRatio: 0.75, // Adjust for document aspect ratio
+                  childAspectRatio: 0.75,
                 ),
                 delegate: SliverChildBuilderDelegate(
                   (context, index) {
                     final path = documents[index];
-                    return _DocumentCard(
-                      filePath: path,
-                      index: index,
-                    );
+                    return _DocumentCard(filePath: path, index: index);
                   },
                   childCount: documents.length,
                 ),
               ),
             ),
-            
-          // Add some bottom padding so FAB doesn't overlap content
-          const SliverToBoxAdapter(
-            child: SizedBox(height: 100),
-          ),
+
+          const SliverToBoxAdapter(child: SizedBox(height: 100)),
         ],
       ),
       floatingActionButton: GestureDetector(
@@ -246,12 +404,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           backgroundColor: AppColors.primary,
           foregroundColor: Colors.white,
           elevation: 4,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(30),
-          ),
-          onPressed: () async {
-            await _openCamera(ref, context);
-          },
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+          onPressed: _openCamera,
           icon: const Icon(Icons.add_a_photo_outlined),
           label: Text(
             'Scan',
@@ -264,6 +418,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 }
 
+// ══════════════════════════════════════════
+//  Document Card
+// ══════════════════════════════════════════
 class _DocumentCard extends StatelessWidget {
   final String filePath;
   final int index;
@@ -318,11 +475,8 @@ class _DocumentCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Scanned just now', // Static for now, can be dynamic later
-                  style: GoogleFonts.inter(
-                    fontSize: 12,
-                    color: Colors.grey.shade500,
-                  ),
+                  'Scanned just now',
+                  style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade500),
                 ),
               ],
             ),
@@ -333,16 +487,15 @@ class _DocumentCard extends StatelessWidget {
   }
 }
 
+// ══════════════════════════════════════════
+//  Option Item (long-press sheet)
+// ══════════════════════════════════════════
 class _OptionItem extends StatelessWidget {
   final IconData icon;
   final String label;
   final VoidCallback onTap;
 
-  const _OptionItem({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-  });
+  const _OptionItem({required this.icon, required this.label, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -374,7 +527,9 @@ class _OptionItem extends StatelessWidget {
   }
 }
 
-/// Developer status banner showing OpenCV connection state.
+// ══════════════════════════════════════════
+//  OpenCV Status Banner
+// ══════════════════════════════════════════
 class _OpenCVStatusBanner extends StatelessWidget {
   final AsyncValue opencvStatus;
 
@@ -387,7 +542,6 @@ class _OpenCVStatusBanner extends StatelessWidget {
       error: (err, _) => const SizedBox.shrink(),
       data: (status) {
         if (status.isAvailable) return const SizedBox.shrink();
-        
         return Container(
           margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -418,11 +572,7 @@ class _OpenCVStatusBanner extends StatelessWidget {
                 borderRadius: BorderRadius.circular(12),
                 child: Padding(
                   padding: const EdgeInsets.all(4),
-                  child: Icon(
-                    Icons.refresh,
-                    size: 20,
-                    color: Colors.red.shade700,
-                  ),
+                  child: Icon(Icons.refresh, size: 20, color: Colors.red.shade700),
                 ),
               ),
             ],

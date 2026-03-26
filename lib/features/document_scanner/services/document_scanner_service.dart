@@ -117,11 +117,13 @@ class DocumentScannerService {
     String imagePath,
     List<Offset> corners, {
     String filter = 'whiteboard',
+    String documentMode = 'auto',
   }) async {
     debugPrint('┌──────────────────────────────────────');
     debugPrint('│ [DocsMind] Processing document natively...');
     debugPrint('│   Path: $imagePath');
     debugPrint('│   Filter: $filter');
+    debugPrint('│   Mode: $documentMode');
     debugPrint('│   Corners: $corners');
     debugPrint('└──────────────────────────────────────');
 
@@ -133,6 +135,7 @@ class DocumentScannerService {
         'path': imagePath,
         'corners': cornersList,
         'filter': filter,
+        'mode': documentMode,
       });
       stopwatch.stop();
 

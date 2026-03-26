@@ -146,59 +146,133 @@ class _CaterpillarAnimationState extends State<CaterpillarAnimation> with Single
     return AnimatedBuilder(
       animation: _controller,
       builder: (context, child) {
-        // Curve the linear value slightly for a smooth startup and stop
         final double value = _controller.value;
-        // Head moves across the box
-        final double headX = -40 + (value * 280);
-        final bool foodEaten = headX >= 135;
+        
+        final double caterpillarStopValue = 0.60;
+        final double bulletStartValue = 0.65;
+        final double blastValue = 0.72;
+
+        final double moveProgress = math.min(value, caterpillarStopValue) / caterpillarStopValue;
+        final double headX = -40 + (moveProgress * 210); // max 170
+        final bool foodEaten = value >= caterpillarStopValue;
+        
+        final bool shouldBlast = value >= blastValue;
+        final double blastProgress = shouldBlast ? (value - blastValue) / (1.0 - blastValue) : 0.0;
+        
+        final double stickmanX = 270;
+        final bool isShooting = value >= bulletStartValue && value < bulletStartValue + 0.08; 
+
+        final double bulletProgress = value >= bulletStartValue && value < blastValue 
+            ? (value - bulletStartValue) / (blastValue - bulletStartValue) 
+            : 0.0;
+        final double bulletX = stickmanX - 10 - (bulletProgress * (stickmanX - headX - 20));
+        final bool showBullet = value >= bulletStartValue && value < blastValue;
+        
         final int segmentsCount = foodEaten ? 6 : 5;
 
         return SizedBox(
-          width: 240,
-          height: 60,
+          width: 320,
+          height: 120,
           child: Stack(
             clipBehavior: Clip.none,
             children: [
+              // Stickman
+              Positioned(
+                left: stickmanX,
+                top: 25,
+                child: CustomPaint(
+                  size: const Size(30, 60),
+                  painter: StickmanPainter(isShooting: isShooting),
+                ),
+              ),
+
               // The Food Pixel
-              if (!foodEaten)
+              if (!foodEaten && !shouldBlast)
                 Positioned(
-                  left: 140,
-                  top: 32,
+                  left: 180,
+                  top: 48,
                   child: Container(
                     width: 14,
                     height: 14,
                     decoration: const BoxDecoration(
-                      color: Color.fromARGB(255, 0, 0, 0), // green pixel food
+                      color: Color.fromARGB(255, 0, 0, 0),
                       shape: BoxShape.circle,
                     ),
                   ),
                 ),
-              // The Caterpillar Pixels
-              for (int i = 0; i < segmentsCount; i++)
+
+              // Bullet
+              if (showBullet)
                 Positioned(
-                  left: headX - (i * 24),
-                  // Smooth continuous crawling arch effect mapping sine from -1..1 to 0..1
-                  top: 24 - ((math.sin(value * math.pi * 16 - (i * 0.6)) + 1.0) / 2.0 * 12.0),
-                  child: i == 0
-                      ? CustomPaint(
-                          size: const Size(28, 28),
-                          painter: HeadPainter(
-                            // Smooth continuous mouth chomp! Map sine to 0.0 -> maxAngle
-                            mouthAngle: value >= 1.0 
-                                ? 0 
-                                : ((math.sin(value * math.pi * 24) + 1.0) / 2.0 * (math.pi / 2.5)),
-                            color: AppColors.primary,
-                          ),
-                        )
-                      : Container(
-                          width: 26,
-                          height: 26,
-                          decoration: BoxDecoration(
-                            color: i.isEven ? AppColors.primary.withValues(alpha: 0.8) : AppColors.primary.withValues(alpha: 0.65),
-                            shape: BoxShape.circle,
-                          ),
-                        ),
+                  left: bulletX,
+                  top: 49,
+                  child: Container(
+                    width: 10,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.black,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
                 ),
+
+              // Caterpillar Normal
+              if (!shouldBlast)
+                for (int i = segmentsCount - 1; i >= 0; i--)
+                  Positioned(
+                    left: headX - (i * 24),
+                    top: 40 - ((math.sin(value * math.pi * 16 - (i * 0.6)) + 1.0) / 2.0 * 12.0),
+                    child: i == 0
+                        ? CustomPaint(
+                            size: const Size(28, 28),
+                            painter: HeadPainter(
+                              mouthAngle: foodEaten 
+                                  ? ((math.sin(value * math.pi * 30) + 1.0) / 2.0 * (math.pi / 4)) 
+                                  : ((math.sin(moveProgress * math.pi * 24) + 1.0) / 2.0 * (math.pi / 2.5)),
+                              color: AppColors.primary,
+                            ),
+                          )
+                        : Container(
+                            width: 26,
+                            height: 26,
+                            decoration: BoxDecoration(
+                              color: i.isEven ? AppColors.primary.withValues(alpha: 0.8) : AppColors.primary.withValues(alpha: 0.65),
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                  ),
+
+              // Blasted Particles
+              if (shouldBlast)
+                for (int i = 0; i < 6; i++)
+                  for (int j = 0; j < 5; j++)
+                    Builder(
+                      builder: (context) {
+                        int k = i * 5 + j;
+                        double angle = k * math.pi * 2 / 30;
+                        double distance = blastProgress * (80 + (k % 7) * 20) * 1.5;
+                        double pX = (170 - i * 24) + distance * math.cos(angle);
+                        double pY = 40 + distance * math.sin(angle) + (blastProgress * blastProgress * 120);
+                        
+                        return Positioned(
+                          left: pX,
+                          top: pY,
+                          child: Transform.rotate(
+                            angle: blastProgress * 20 * (j % 2 == 0 ? 1 : -1),
+                            child: Container(
+                              width: 10 * (1 - blastProgress * 0.5),
+                              height: 10 * (1 - blastProgress * 0.5),
+                              decoration: BoxDecoration(
+                                color: (i == 0 || j % 2 == 0) 
+                                    ? AppColors.primary 
+                                    : AppColors.primary.withValues(alpha: 0.8),
+                                shape: j % 3 == 0 ? BoxShape.circle : BoxShape.rectangle,
+                              ),
+                            ),
+                          ),
+                        );
+                      }
+                    ),
             ],
           ),
         );
@@ -228,4 +302,51 @@ class HeadPainter extends CustomPainter {
   @override
   bool shouldRepaint(HeadPainter oldDelegate) => 
       oldDelegate.mouthAngle != mouthAngle || oldDelegate.color != color;
+}
+
+class StickmanPainter extends CustomPainter {
+  final bool isShooting;
+
+  StickmanPainter({required this.isShooting});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.black
+      ..strokeWidth = 2
+      ..strokeCap = StrokeCap.round
+      ..style = PaintingStyle.stroke;
+
+    // Head
+    canvas.drawCircle(const Offset(15, 10), 8, paint);
+    
+    // Body
+    canvas.drawLine(const Offset(15, 18), const Offset(15, 35), paint);
+    
+    // Legs
+    canvas.drawLine(const Offset(15, 35), const Offset(5, 55), paint);
+    canvas.drawLine(const Offset(15, 35), const Offset(25, 55), paint);
+    
+    // Arms holding gun
+    if (isShooting) {
+      // Arms pointing left
+      canvas.drawLine(const Offset(15, 23), const Offset(-5, 24), paint);
+      // Gun
+      canvas.drawLine(const Offset(-5, 24), const Offset(-15, 24), paint..strokeWidth = 4);
+      canvas.drawLine(const Offset(-5, 24), const Offset(-5, 28), paint..strokeWidth = 3);
+      
+      // Muzzle flash
+      final flashPaint = Paint()..color = Colors.orangeAccent..style = PaintingStyle.fill;
+      canvas.drawCircle(const Offset(-20, 24), 4, flashPaint);
+      canvas.drawCircle(const Offset(-25, 24), 2, flashPaint);
+    } else {
+      // Resting arms
+      canvas.drawLine(const Offset(15, 23), const Offset(5, 32), paint);
+      // Gun pointing down/left
+      canvas.drawLine(const Offset(5, 32), const Offset(-2, 40), paint..strokeWidth = 4);
+    }
+  }
+
+  @override
+  bool shouldRepaint(StickmanPainter oldDelegate) => oldDelegate.isShooting != isShooting;
 }
