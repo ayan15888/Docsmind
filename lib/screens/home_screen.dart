@@ -1,166 +1,74 @@
 import 'dart:io';
-import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:docsmind/core/providers.dart';
-import 'package:docsmind/screens/camera_screen.dart';
+import 'package:docsmind/core/haptics.dart';
+import 'package:docsmind/core/widgets/app_responsive_scaffold.dart';
 import 'package:docsmind/screens/compress_screen.dart';
 import 'package:docsmind/screens/settings_screen.dart';
-import 'package:permission_handler/permission_handler.dart';
-import 'package:docsmind/constants/app_constants.dart';
-import 'package:docsmind/features/settings/services/settings_service.dart';
+import 'package:docsmind/screens/document_editor_screen.dart';
+import 'package:docsmind/screens/home/home_providers.dart';
+import 'package:docsmind/screens/home/widgets/document_card.dart';
+import 'package:docsmind/screens/home/widgets/home_search_bar.dart';
+import 'package:docsmind/screens/home/widgets/home_filter_chips.dart';
+import 'package:docsmind/screens/home/widgets/home_empty_state.dart';
+import 'package:docsmind/screens/home/widgets/document_options_sheet.dart';
+import 'package:docsmind/screens/home/widgets/create_document_sheet.dart';
 
-// ══════════════════════════════════════════
-//  Tab Index Provider
-// ══════════════════════════════════════════
-final homeTabIndexProvider = StateProvider<int>((ref) => 0);
+// Re-export providers for any external listeners
+export 'package:docsmind/screens/home/home_providers.dart';
 
-// ══════════════════════════════════════════
-//  HomeScreen — Tab Shell
-// ══════════════════════════════════════════
+// ── HomeScreen Shell with M3 Responsive Navigation ─────────────────────────
 class HomeScreen extends ConsumerWidget {
-  const HomeScreen({Key? key}) : super(key: key);
+  const HomeScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final currentIndex = ref.watch(homeTabIndexProvider);
 
-    const screens = [
+    final screens = const [
       _DocumentsTab(),
       CompressScreen(),
       SettingsScreen(),
     ];
 
-    return Scaffold(
-      body: IndexedStack(
-        index: currentIndex,
-        children: screens,
+    const destinations = [
+      AppNavDestination(
+        icon: Icon(Icons.folder_outlined),
+        selectedIcon: Icon(Icons.folder_rounded),
+        label: 'Documents',
       ),
-      bottomNavigationBar: _AppBottomNavBar(
-        currentIndex: currentIndex,
-        onTap: (i) {
-          HapticFeedback.selectionClick();
-          ref.read(homeTabIndexProvider.notifier).state = i;
-        },
+      AppNavDestination(
+        icon: Icon(Icons.compress_outlined),
+        selectedIcon: Icon(Icons.compress_rounded),
+        label: 'Compress',
       ),
-    );
-  }
-}
-
-// ══════════════════════════════════════════
-//  Custom Animated Bottom Nav Bar
-// ══════════════════════════════════════════
-class _AppBottomNavBar extends StatelessWidget {
-  final int currentIndex;
-  final ValueChanged<int> onTap;
-
-  const _AppBottomNavBar({
-    required this.currentIndex,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    const items = [
-      (icon: Icons.folder_outlined, activeIcon: Icons.folder_rounded, label: 'Documents'),
-      (icon: Icons.compress_outlined, activeIcon: Icons.compress_rounded, label: 'Compress'),
-      (icon: Icons.settings_outlined, activeIcon: Icons.settings_rounded, label: 'Settings'),
+      AppNavDestination(
+        icon: Icon(Icons.tune_outlined),
+        selectedIcon: Icon(Icons.tune_rounded),
+        label: 'Settings',
+      ),
     ];
 
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.06),
-            blurRadius: 20,
-            offset: const Offset(0, -4),
-          ),
-        ],
-      ),
-      child: SafeArea(
-        child: SizedBox(
-          height: 64,
-          child: Row(
-            children: [
-              for (int i = 0; i < items.length; i++)
-                Expanded(
-                  child: _NavBarItem(
-                    icon: items[i].icon,
-                    activeIcon: items[i].activeIcon,
-                    label: items[i].label,
-                    isActive: currentIndex == i,
-                    onTap: () => onTap(i),
-                  ),
-                ),
-            ],
-          ),
-        ),
+    return AppResponsiveScaffold(
+      selectedIndex: currentIndex,
+      onDestinationSelected: (i) {
+        AppHaptics.selectionClick();
+        ref.read(homeTabIndexProvider.notifier).state = i;
+      },
+      destinations: destinations,
+      body: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 250),
+        switchInCurve: Curves.easeOutCubic,
+        switchOutCurve: Curves.easeInCubic,
+        child: screens[currentIndex],
       ),
     );
   }
 }
 
-class _NavBarItem extends StatelessWidget {
-  final IconData icon;
-  final IconData activeIcon;
-  final String label;
-  final bool isActive;
-  final VoidCallback onTap;
-
-  const _NavBarItem({
-    required this.icon,
-    required this.activeIcon,
-    required this.label,
-    required this.isActive,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: onTap,
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            curve: Curves.easeOutCubic,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            decoration: BoxDecoration(
-              color: isActive
-                  ? AppColors.primary.withValues(alpha: 0.12)
-                  : Colors.transparent,
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Icon(
-              isActive ? activeIcon : icon,
-              color: isActive ? AppColors.primary : Colors.grey.shade400,
-              size: 24,
-            ),
-          ),
-          const SizedBox(height: 2),
-          AnimatedDefaultTextStyle(
-            duration: const Duration(milliseconds: 200),
-            style: GoogleFonts.inter(
-              fontSize: 11,
-              fontWeight: isActive ? FontWeight.w700 : FontWeight.w400,
-              color: isActive ? AppColors.primary : Colors.grey.shade400,
-            ),
-            child: Text(label),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ══════════════════════════════════════════
-//  Documents Tab
-// ══════════════════════════════════════════
+// ── Documents Tab ───────────────────────────────────────────────────────────
 class _DocumentsTab extends ConsumerStatefulWidget {
   const _DocumentsTab();
 
@@ -169,416 +77,410 @@ class _DocumentsTab extends ConsumerStatefulWidget {
 }
 
 class _DocumentsTabState extends ConsumerState<_DocumentsTab> {
-  Timer? _holdTimer;
+  final TextEditingController _searchController = TextEditingController();
 
-  void _handleLongPressStart(LongPressStartDetails details) {
-    _holdTimer = Timer(const Duration(milliseconds: 500), _showOptions);
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
-  void _handleLongPressEnd(LongPressEndDetails details) {
-    _holdTimer?.cancel();
-    _holdTimer = null;
-  }
-
-  void _showOptions() {
-    HapticFeedback.mediumImpact();
-    showModalBottomSheet(
+  Future<String?> _showSaveFormatDialog(int pageCount) async {
+    AppHaptics.selectionClick();
+    return showModalBottomSheet<String>(
       context: context,
-      backgroundColor: Colors.transparent,
-      builder: (context) {
-        return Container(
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-          ),
-          padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade300,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              const SizedBox(height: 24),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  _OptionItem(
-                    icon: Icons.picture_as_pdf_outlined,
-                    label: 'Merge PDF',
-                    onTap: () {
-                      Navigator.pop(context);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Merge PDF selected')),
-                      );
-                    },
-                  ),
-                  _OptionItem(
-                    icon: Icons.badge_outlined,
-                    label: 'Business Card',
-                    onTap: () {
-                      Navigator.pop(context);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Scan business card selected')),
-                      );
-                    },
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Future<void> _openCamera() async {
-    final status = await Permission.camera.status;
-    if (!status.isGranted) {
-      final result = await Permission.camera.request();
-      if (!result.isGranted) {
-        if (!context.mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Camera permission denied')),
-        );
-        return;
-      }
-    }
-    if (mounted) {
-      Navigator.push(
-        context,
-        PageRouteBuilder(
-          transitionDuration: const Duration(milliseconds: 350),
-          reverseTransitionDuration: const Duration(milliseconds: 250),
-          pageBuilder: (context, animation, secondaryAnimation) =>
-              const CameraScreen(),
-          transitionsBuilder: (context, animation, secondaryAnimation, child) {
-            final curvedAnimation = CurvedAnimation(
-              parent: animation,
-              curve: Curves.easeOutQuart,
-              reverseCurve: Curves.easeInQuart,
-            );
-
-            return SlideTransition(
-              position: Tween<Offset>(
-                begin: const Offset(0, 1.0),
-                end: Offset.zero,
-              ).animate(curvedAnimation),
-              child: child,
-            );
-          },
-        ),
-      );
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final documents = ref.watch(documentsProvider);
-    final errorMessage = ref.watch(errorMessageProvider);
-    final opencvStatus = ref.watch(opencvStatusProvider);
-
-    return Scaffold(
-      backgroundColor: const Color(0xFFF7F7F9),
-      body: CustomScrollView(
-        slivers: [
-          SliverAppBar.large(
-            backgroundColor: AppColors.primary,
-            elevation: 0,
-            title: Text(
-              'Documents',
-              style: GoogleFonts.inter(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-                letterSpacing: -1,
-              ),
-            ),
-            actions: [
-              IconButton(
-                icon: const Icon(Icons.settings_outlined, color: Colors.white),
-                onPressed: () => SettingsService.showSettingsDialog(context),
-              ),
-            ],
-          ),
-
-          SliverToBoxAdapter(
-            child: _OpenCVStatusBanner(opencvStatus: opencvStatus),
-          ),
-
-          if (errorMessage != null)
-            SliverToBoxAdapter(
-              child: Container(
-                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                padding: const EdgeInsets.all(12.0),
-                decoration: BoxDecoration(
-                  color: Colors.red.shade50,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.red.shade200),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.error_outline, color: Colors.red.shade700),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        errorMessage,
-                        style: TextStyle(color: Colors.red.shade900),
-                      ),
-                    ),
-                    IconButton(
-                      icon: Icon(Icons.close, color: Colors.red.shade700),
-                      onPressed: () {
-                        ref.read(errorMessageProvider.notifier).state = null;
-                      },
-                    ),
-                  ],
-                ),
-              ),
-            ),
-
-          if (documents.isEmpty)
-            SliverFillRemaining(
-              hasScrollBody: false,
-              child: Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.document_scanner_outlined,
-                      size: 80,
-                      color: AppColors.primary.withValues(alpha: 0.4),
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      'No documents scanned yet',
-                      style: GoogleFonts.inter(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w500,
-                        color: Colors.grey.shade600,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Tap the camera button to start scanning',
-                      style: GoogleFonts.inter(
-                        fontSize: 14,
-                        color: Colors.grey.shade500,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            )
-          else
-            SliverPadding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              sliver: SliverGrid(
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 2,
-                  crossAxisSpacing: 16,
-                  mainAxisSpacing: 16,
-                  childAspectRatio: 0.75,
-                ),
-                delegate: SliverChildBuilderDelegate(
-                  (context, index) {
-                    final path = documents[index];
-                    return _DocumentCard(filePath: path, index: index);
-                  },
-                  childCount: documents.length,
-                ),
-              ),
-            ),
-
-          const SliverToBoxAdapter(child: SizedBox(height: 100)),
-        ],
+      showDragHandle: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
-      floatingActionButton: GestureDetector(
-        onLongPressStart: _handleLongPressStart,
-        onLongPressEnd: _handleLongPressEnd,
-        child: FloatingActionButton.extended(
-          backgroundColor: AppColors.primary,
-          foregroundColor: Colors.white,
-          elevation: 4,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
-          onPressed: _openCamera,
-          icon: const Icon(Icons.add_a_photo_outlined),
-          label: Text(
-            'Scan',
-            style: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 16),
-          ),
-        ),
-      ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
-    );
-  }
-}
+      builder: (ctx) {
+        final colorScheme = Theme.of(ctx).colorScheme;
+        final textTheme = Theme.of(ctx).textTheme;
 
-// ══════════════════════════════════════════
-//  Document Card
-// ══════════════════════════════════════════
-class _DocumentCard extends StatelessWidget {
-  final String filePath;
-  final int index;
-
-  const _DocumentCard({required this.filePath, required this.index});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Expanded(
-            child: ClipRRect(
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-              child: Image.file(
-                File(filePath),
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) => Container(
-                  color: Colors.grey.shade200,
-                  alignment: Alignment.center,
-                  child: Icon(Icons.broken_image, color: Colors.grey.shade500),
-                ),
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(12),
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
             child: Column(
+              mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Document ${index + 1}',
-                  style: GoogleFonts.inter(
+                  'Save Scan As',
+                  style: textTheme.titleLarge?.copyWith(
                     fontWeight: FontWeight.w600,
-                    fontSize: 14,
-                    color: Colors.black87,
+                    color: colorScheme.onSurface,
                   ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Scanned just now',
-                  style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade500),
+                  'Choose format for $pageCount ${pageCount == 1 ? 'scanned page' : 'scanned pages'}',
+                  style: textTheme.bodySmall?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Card.outlined(
+                  margin: EdgeInsets.zero,
+                  child: Column(
+                    children: [
+                      ListTile(
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 6,
+                        ),
+                        leading: Container(
+                          width: 44,
+                          height: 44,
+                          decoration: BoxDecoration(
+                            color: colorScheme.primaryContainer,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            Icons.picture_as_pdf_rounded,
+                            color: colorScheme.onPrimaryContainer,
+                            size: 24,
+                          ),
+                        ),
+                        title: Text(
+                          'PDF Document (.pdf)',
+                          style: textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w600,
+                            color: colorScheme.onSurface,
+                          ),
+                        ),
+                        subtitle: Text(
+                          pageCount > 1
+                              ? 'Combine $pageCount pages into a single PDF document'
+                              : 'Standard single-page PDF document',
+                          style: textTheme.bodySmall?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                        trailing: Icon(
+                          Icons.chevron_right_rounded,
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                        onTap: () {
+                          AppHaptics.selectionClick();
+                          Navigator.pop(ctx, 'pdf');
+                        },
+                      ),
+                      const Divider(height: 1, indent: 64),
+                      ListTile(
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 6,
+                        ),
+                        leading: Container(
+                          width: 44,
+                          height: 44,
+                          decoration: BoxDecoration(
+                            color: colorScheme.secondaryContainer,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            Icons.image_outlined,
+                            color: colorScheme.onSecondaryContainer,
+                            size: 24,
+                          ),
+                        ),
+                        title: Text(
+                          'JPG Image (.jpg)',
+                          style: textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w600,
+                            color: colorScheme.onSurface,
+                          ),
+                        ),
+                        subtitle: Text(
+                          pageCount > 1
+                              ? 'Save as $pageCount individual image files'
+                              : 'Standard JPG photo format',
+                          style: textTheme.bodySmall?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                        trailing: Icon(
+                          Icons.chevron_right_rounded,
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                        onTap: () {
+                          AppHaptics.selectionClick();
+                          Navigator.pop(ctx, 'jpg');
+                        },
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
           ),
-        ],
-      ),
+        );
+      },
     );
   }
-}
 
-// ══════════════════════════════════════════
-//  Option Item (long-press sheet)
-// ══════════════════════════════════════════
-class _OptionItem extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
+  Future<void> _scanWithAutoScanner() async {
+    try {
+      AppHaptics.heavyImpact();
+      final scannerService = ref.read(documentScannerProvider);
+      final images = await scannerService.scanWithMLKit(pageLimit: 10);
+      if (images.isNotEmpty && mounted) {
+        final chosenFormat = await _showSaveFormatDialog(images.length);
+        if (chosenFormat == null || !mounted) return;
 
-  const _OptionItem({required this.icon, required this.label, required this.onTap});
+        if (chosenFormat == 'pdf') {
+          AppHaptics.heavyImpact();
+          final pdfPath = await scannerService.buildPdfFromImages(images);
+          if (pdfPath != null && mounted) {
+            final docs = ref.read(documentsProvider);
+            ref.read(documentsProvider.notifier).state = [...docs, pdfPath];
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  'Saved as PDF (${images.length} ${images.length == 1 ? 'page' : 'pages'})',
+                ),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          }
+        } else {
+          AppHaptics.heavyImpact();
+          final docs = ref.read(documentsProvider);
+          ref.read(documentsProvider.notifier).state = [...docs, ...images];
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Saved as JPG (${images.length} ${images.length == 1 ? 'image' : 'images'})',
+              ),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+          if (mounted) {
+            _openEditor(images.last);
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('MLKit scan error: $e');
+    }
+  }
+
+  Future<void> _pickFromGallery() async {
+    try {
+      AppHaptics.lightImpact();
+      final picker = ImagePicker();
+      final picked = await picker.pickImage(source: ImageSource.gallery);
+      if (picked != null && mounted) {
+        final chosenFormat = await _showSaveFormatDialog(1);
+        if (chosenFormat == null || !mounted) return;
+
+        if (chosenFormat == 'pdf') {
+          final scannerService = ref.read(documentScannerProvider);
+          final pdfPath = await scannerService.buildPdfFromImages([picked.path]);
+          if (pdfPath != null && mounted) {
+            final docs = ref.read(documentsProvider);
+            ref.read(documentsProvider.notifier).state = [...docs, pdfPath];
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Saved as PDF document'),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          }
+        } else {
+          final docs = ref.read(documentsProvider);
+          ref.read(documentsProvider.notifier).state = [...docs, picked.path];
+          if (mounted) {
+            _openEditor(picked.path);
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Gallery pick error: $e');
+    }
+  }
+
+  Future<void> _openEditor(String path) async {
+    final isPdf = path.toLowerCase().endsWith('.pdf');
+    if (isPdf) {
+      final docs = ref.read(documentsProvider);
+      final idx = docs.indexOf(path);
+      showDocumentOptionsSheet(
+        context: context,
+        path: path,
+        index: idx >= 0 ? idx : 0,
+        onEdit: () {},
+        onDelete: () => _deleteDocument(path),
+      );
+      return;
+    }
+
+    final didUpdate = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => DocumentEditorScreen(imagePath: path),
+      ),
+    );
+    if (didUpdate == true && mounted) {
+      PaintingBinding.instance.imageCache.evict(FileImage(File(path)));
+      ref.read(documentsProvider.notifier).state = [
+        ...ref.read(documentsProvider)
+      ];
+    }
+  }
+
+  void _deleteDocument(String path) {
+    final docs = List<String>.from(ref.read(documentsProvider))..remove(path);
+    ref.read(documentsProvider.notifier).state = docs;
+    try {
+      final f = File(path);
+      if (f.existsSync()) f.deleteSync();
+    } catch (_) {}
+    AppHaptics.mediumImpact();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: const BoxDecoration(
-              color: Color(0xFFF0F0F0),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(icon, size: 28, color: Colors.black87),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            label,
-            style: GoogleFonts.inter(
-              fontWeight: FontWeight.w500,
-              color: Colors.black87,
-              fontSize: 14,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final textTheme = theme.textTheme;
 
-// ══════════════════════════════════════════
-//  OpenCV Status Banner
-// ══════════════════════════════════════════
-class _OpenCVStatusBanner extends StatelessWidget {
-  final AsyncValue opencvStatus;
+    final documents = ref.watch(documentsProvider);
+    final isGridView = ref.watch(isGridViewProvider);
+    final activeFilter = ref.watch(selectedDocumentFilterProvider);
+    final searchQuery = ref.watch(documentSearchQueryProvider);
 
-  const _OpenCVStatusBanner({required this.opencvStatus});
+    final filteredDocuments = documents.where((docPath) {
+      final name = docPath.split(Platform.pathSeparator).last.toLowerCase();
+      final isPdf = name.endsWith('.pdf');
+      if (activeFilter == 'PDF' && !isPdf) return false;
+      if (activeFilter == 'Images' && isPdf) return false;
+      if (searchQuery.isNotEmpty && !name.contains(searchQuery.toLowerCase())) {
+        return false;
+      }
+      return true;
+    }).toList();
 
-  @override
-  Widget build(BuildContext context) {
-    return opencvStatus.when(
-      loading: () => const SizedBox.shrink(),
-      error: (err, _) => const SizedBox.shrink(),
-      data: (status) {
-        if (status.isAvailable) return const SizedBox.shrink();
-        return Container(
-          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          decoration: BoxDecoration(
-            color: Colors.red.shade50,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.red.shade200),
+    return Scaffold(
+      backgroundColor: colorScheme.surface,
+      body: CustomScrollView(
+        physics: const AlwaysScrollableScrollPhysics(
+          parent: BouncingScrollPhysics(),
+        ),
+        slivers: [
+          // ── Non-sticky App Bar with Search Bar ──
+          SliverAppBar(
+            pinned: false,
+            floating: false,
+            toolbarHeight: 80,
+            titleSpacing: 16,
+            elevation: 0,
+            scrolledUnderElevation: 0,
+            backgroundColor: colorScheme.surface,
+            automaticallyImplyLeading: false,
+            title: HomeSearchBar(searchController: _searchController),
           ),
-          child: Row(
-            children: [
-              Icon(Icons.error_outline, size: 20, color: Colors.red.shade700),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'OpenCV Disconnected: ${status.error ?? "Unknown"}',
-                  style: GoogleFonts.inter(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.red.shade800,
+
+          // ── Recent Scans Header & View Toggle ──
+          const HomeViewToggleHeader(),
+
+          // ── Filter Chips ──
+          const HomeFilterChips(),
+
+            // ── Empty State View ──
+            if (filteredDocuments.isEmpty)
+              HomeEmptyState(isSearchEmpty: searchQuery.isNotEmpty)
+
+            // ── Grid View ──
+            else if (isGridView)
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
+                sliver: SliverGrid(
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 2,
+                    crossAxisSpacing: 12,
+                    mainAxisSpacing: 12,
+                    childAspectRatio: 0.74,
+                  ),
+                  delegate: SliverChildBuilderDelegate(
+                    (ctx, i) => DocumentCard(
+                      filePath: filteredDocuments[i],
+                      index: i,
+                      isGrid: true,
+                      onTap: () => _openEditor(filteredDocuments[i]),
+                      onMoreTap: () => showDocumentOptionsSheet(
+                        context: context,
+                        path: filteredDocuments[i],
+                        index: i,
+                        onEdit: () => _openEditor(filteredDocuments[i]),
+                        onDelete: () => _deleteDocument(filteredDocuments[i]),
+                      ),
+                    ),
+                    childCount: filteredDocuments.length,
+                  ),
+                ),
+              )
+
+            // ── List View ──
+            else
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
+                sliver: SliverList(
+                  delegate: SliverChildBuilderDelegate(
+                    (ctx, i) => Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: DocumentCard(
+                        filePath: filteredDocuments[i],
+                        index: i,
+                        isGrid: false,
+                        onTap: () => _openEditor(filteredDocuments[i]),
+                        onMoreTap: () => showDocumentOptionsSheet(
+                          context: context,
+                          path: filteredDocuments[i],
+                          index: i,
+                          onEdit: () => _openEditor(filteredDocuments[i]),
+                          onDelete: () => _deleteDocument(filteredDocuments[i]),
+                        ),
+                      ),
+                    ),
+                    childCount: filteredDocuments.length,
                   ),
                 ),
               ),
-              InkWell(
-                onTap: () {
-                  final container = ProviderScope.containerOf(context);
-                  container.invalidate(opencvStatusProvider);
-                },
-                borderRadius: BorderRadius.circular(12),
-                child: Padding(
-                  padding: const EdgeInsets.all(4),
-                  child: Icon(Icons.refresh, size: 20, color: Colors.red.shade700),
-                ),
-              ),
-            ],
+          ],
+        ),
+
+      // ── Floating Action Button (M3 Scan Action) ──
+      floatingActionButton: Semantics(
+        button: true,
+        label: 'Scan document, hold for more options',
+        child: GestureDetector(
+          onLongPress: () => showCreateDocumentSheet(
+            context: context,
+            onScan: _scanWithAutoScanner,
+            onImportGallery: _pickFromGallery,
           ),
-        );
-      },
+          child: FloatingActionButton.extended(
+            tooltip: 'Scan document (Hold for options)',
+            onPressed: _scanWithAutoScanner,
+            backgroundColor: colorScheme.primary,
+            foregroundColor: colorScheme.onPrimary,
+            elevation: 0,
+            highlightElevation: 0,
+            focusElevation: 0,
+            hoverElevation: 0,
+            icon: const Icon(Icons.document_scanner_rounded),
+            label: Text(
+              'Scan',
+              style: textTheme.labelLarge?.copyWith(
+                color: colorScheme.onPrimary,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ),
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
     );
   }
 }

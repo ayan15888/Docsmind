@@ -7,7 +7,6 @@ plugins {
 android {
     namespace = "com.example.docsmind"
     compileSdk = 36
-    ndkVersion = "27.0.12077973"
 
     defaultConfig {
         applicationId = "com.example.docsmind"
@@ -15,16 +14,6 @@ android {
         targetSdk = 36
         versionCode = flutter.versionCode
         versionName = flutter.versionName
-
-        ndk {
-            abiFilters "armeabi-v7a", "arm64-v8a"
-        }
-
-        externalNativeBuild {
-            cmake {
-                arguments "-DANDROID_STL=c++_shared"
-            }
-        }
     }
 
     compileOptions {
@@ -36,36 +25,15 @@ android {
         jvmTarget = "17"
     }
 
-    externalNativeBuild {
-        cmake {
-            path "src/main/cpp/CMakeLists.txt"
-        }
-    }
-
-    sourceSets {
-        main {
-            jniLibs.srcDirs += ["../opencv/native/libs"]
-        }
-    }
-
     buildTypes {
         release {
             signingConfig = signingConfigs.debug
         }
     }
-
-    packagingOptions {
-        pickFirst '**/*.so'
-    }
-    
-    aaptOptions {
-        noCompress "tflite"
-    }
 }
 
 dependencies {
-    implementation project(':opencv')
-    implementation 'org.tensorflow:tensorflow-lite:2.14.0'
+    // No extra native dependencies — MLKit is handled by google_mlkit_document_scanner Flutter plugin
 }
 
 flutter {

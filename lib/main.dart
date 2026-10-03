@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:docsmind/core/splash_screen.dart';
 import 'package:docsmind/core/providers.dart';
+import 'package:docsmind/core/app_theme.dart';
 import 'package:docsmind/constants/app_constants.dart';
 
 void main() {
@@ -13,23 +14,20 @@ class MyApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final themeMode = ref.watch(themeModeProvider);
     final isDarkMode = ref.watch(darkModeProvider);
+
+    // If explicit themeMode was chosen, respect it; otherwise fall back to darkMode toggle
+    final effectiveThemeMode = themeMode != ThemeMode.system
+        ? themeMode
+        : (isDarkMode ? ThemeMode.dark : ThemeMode.system);
+
     return MaterialApp(
       title: AppStrings.appName,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: AppColors.primary),
-        useMaterial3: true,
-        brightness: Brightness.light,
-      ),
-      darkTheme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: AppColors.primary,
-          brightness: Brightness.dark,
-        ),
-        useMaterial3: true,
-        brightness: Brightness.dark,
-      ),
-      themeMode: isDarkMode ? ThemeMode.dark : ThemeMode.light,
+      debugShowCheckedModeBanner: false,
+      theme: AppTheme.lightTheme,
+      darkTheme: AppTheme.darkTheme,
+      themeMode: effectiveThemeMode,
       home: const SplashScreen(),
     );
   }

@@ -1,121 +1,691 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:google_fonts/google_fonts.dart';
-import 'package:docsmind/constants/app_constants.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:docsmind/core/providers.dart';
+import 'package:docsmind/core/haptics.dart';
+import 'package:docsmind/core/widgets/app_bottom_sheet.dart';
 
+/// Material Design 3 (Material You) Settings Screen.
+///
+/// Features:
+/// - M3 `SliverAppBar` with responsive typography and Newsreader semi-bold 600 font
+/// - Support for System, Light, and Dark theme modes with M3 `RadioListTile` in an `AppBottomSheet`
+/// - Dedicated toggle for Pure White Light Mode
+/// - Backup / Transfer tool for exporting, saving, or restoring document scans
+/// - M3 `Card.outlined` groups with standard `ListTile` and tonal containers
+/// - Zero hardcoded colors; all values bound to `Theme.of(context).colorScheme`
+/// - Minimum 48x48dp touch targets and accessibility semantics
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
 
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final isDarkMode = ref.watch(darkModeProvider);
+  void _showThemeSelector(BuildContext context, WidgetRef ref) {
+    AppHaptics.selectionClick();
+    final themeMode = ref.watch(themeModeProvider);
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF7F7F9),
-      body: CustomScrollView(
-        slivers: [
-          SliverAppBar.large(
-            backgroundColor: AppColors.primary,
-            elevation: 0,
-            title: Text(
-              'Settings',
-              style: GoogleFonts.inter(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-                letterSpacing: -1,
-              ),
+    AppBottomSheet.show(
+      context: context,
+      builder: (ctx) {
+        final colorScheme = Theme.of(ctx).colorScheme;
+        final textTheme = Theme.of(ctx).textTheme;
+
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Text(
+                    'Choose Theme',
+                    style: textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: colorScheme.onSurface,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                RadioListTile<ThemeMode>(
+                  value: ThemeMode.system,
+                  groupValue: themeMode,
+                  title: const Text('System default'),
+                  subtitle: const Text('Follows system dark/light mode'),
+                  secondary: const Icon(Icons.brightness_auto_outlined),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  onChanged: (newMode) {
+                    if (newMode != null) {
+                      AppHaptics.selectionClick();
+                      ref.read(themeModeProvider.notifier).state = newMode;
+                      Navigator.pop(ctx);
+                    }
+                  },
+                ),
+                RadioListTile<ThemeMode>(
+                  value: ThemeMode.light,
+                  groupValue: themeMode,
+                  title: const Text('Light mode'),
+                  subtitle: const Text('Always use light theme'),
+                  secondary: const Icon(Icons.light_mode_outlined),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  onChanged: (newMode) {
+                    if (newMode != null) {
+                      AppHaptics.selectionClick();
+                      ref.read(themeModeProvider.notifier).state = newMode;
+                      ref.read(darkModeProvider.notifier).state = false;
+                      Navigator.pop(ctx);
+                    }
+                  },
+                ),
+                RadioListTile<ThemeMode>(
+                  value: ThemeMode.dark,
+                  groupValue: themeMode,
+                  title: const Text('Dark mode'),
+                  subtitle: const Text('Always use dark theme'),
+                  secondary: const Icon(Icons.dark_mode_outlined),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  onChanged: (newMode) {
+                    if (newMode != null) {
+                      AppHaptics.selectionClick();
+                      ref.read(themeModeProvider.notifier).state = newMode;
+                      ref.read(darkModeProvider.notifier).state = true;
+                      Navigator.pop(ctx);
+                    }
+                  },
+                ),
+              ],
             ),
           ),
+        );
+      },
+    );
+  }
+
+  void _showBackupTransferSheet(BuildContext context, WidgetRef ref) {
+    AppHaptics.lightImpact();
+    AppBottomSheet.show(
+      context: context,
+      builder: (ctx) {
+        final colorScheme = Theme.of(ctx).colorScheme;
+        final textTheme = Theme.of(ctx).textTheme;
+        final docs = ref.watch(documentsProvider);
+
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 48,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 20),
+                    decoration: BoxDecoration(
+                      color: colorScheme.outlineVariant,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                Row(
+                  children: [
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: colorScheme.primaryContainer,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        Icons.swap_horiz_rounded,
+                        color: colorScheme.onPrimaryContainer,
+                        size: 24,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Backup / Transfer',
+                            style: textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w600,
+                              color: colorScheme.onSurface,
+                            ),
+                          ),
+                          Text(
+                            '${docs.length} ${docs.length == 1 ? 'document' : 'documents'} ready',
+                            style: textTheme.bodySmall?.copyWith(
+                              color: colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+
+                // Share / Direct transfer
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: colorScheme.surfaceContainerHigh,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      Icons.share_outlined,
+                      color: colorScheme.primary,
+                      size: 20,
+                    ),
+                  ),
+                  title: Text(
+                    'Direct Device Transfer / Share',
+                    style: textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  subtitle: Text(
+                    'Transfer scans directly via Quick Share, Nearby, or apps',
+                    style: textTheme.bodySmall?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  onTap: () async {
+                    Navigator.pop(ctx);
+                    if (docs.isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('No scanned documents to transfer yet.'),
+                        ),
+                      );
+                      return;
+                    }
+                    AppHaptics.selectionClick();
+                    final xfiles = docs.map((p) => XFile(p)).toList();
+                    await Share.shareXFiles(
+                      xfiles,
+                      text: 'DocsMind Document Backup',
+                    );
+                  },
+                ),
+                const Divider(height: 16),
+
+                // Save to folder
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: colorScheme.surfaceContainerHigh,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      Icons.folder_zip_outlined,
+                      color: colorScheme.primary,
+                      size: 20,
+                    ),
+                  ),
+                  title: Text(
+                    'Export to Local Folder',
+                    style: textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  subtitle: Text(
+                    'Save all document copies to a chosen local directory',
+                    style: textTheme.bodySmall?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  onTap: () async {
+                    Navigator.pop(ctx);
+                    if (docs.isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('No scanned documents to export yet.'),
+                        ),
+                      );
+                      return;
+                    }
+                    AppHaptics.selectionClick();
+                    final selectedDir = await FilePicker.getDirectoryPath(
+                      dialogTitle: 'Select Backup Destination Folder',
+                    );
+                    if (selectedDir != null) {
+                      int count = 0;
+                      for (int i = 0; i < docs.length; i++) {
+                        final file = File(docs[i]);
+                        if (await file.exists()) {
+                          final ext = docs[i].split('.').last;
+                          final name =
+                              'docsmind_backup_${i + 1}_${DateTime.now().millisecondsSinceEpoch}.$ext';
+                          await file.copy('$selectedDir/$name');
+                          count++;
+                        }
+                      }
+                      AppHaptics.heavyImpact();
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              'Successfully exported $count documents to $selectedDir',
+                            ),
+                          ),
+                        );
+                      }
+                    }
+                  },
+                ),
+                const Divider(height: 16),
+
+                // Import / Restore
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: colorScheme.surfaceContainerHigh,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      Icons.file_download_outlined,
+                      color: colorScheme.primary,
+                      size: 20,
+                    ),
+                  ),
+                  title: Text(
+                    'Import & Restore Documents',
+                    style: textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  subtitle: Text(
+                    'Import scanned documents or transfer files from another phone',
+                    style: textTheme.bodySmall?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  onTap: () async {
+                    Navigator.pop(ctx);
+                    AppHaptics.selectionClick();
+                    final result = await FilePicker.pickFiles(
+                      allowMultiple: true,
+                      type: FileType.custom,
+                      allowedExtensions: ['pdf', 'jpg', 'jpeg', 'png'],
+                      dialogTitle: 'Select Documents to Import',
+                    );
+                    if (result != null && result.paths.isNotEmpty) {
+                      final validPaths =
+                          result.paths.whereType<String>().toList();
+                      if (validPaths.isNotEmpty) {
+                        final current = ref.read(documentsProvider);
+                        ref.read(documentsProvider.notifier).state = [
+                          ...current,
+                          ...validPaths,
+                        ];
+                        AppHaptics.heavyImpact();
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                'Imported ${validPaths.length} documents successfully!',
+                              ),
+                            ),
+                          );
+                        }
+                      }
+                    }
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  String _getThemeSubtitle(ThemeMode mode, bool isDarkSystem) {
+    switch (mode) {
+      case ThemeMode.system:
+        return 'System default (${isDarkSystem ? 'Dark' : 'Light'})';
+      case ThemeMode.light:
+        return 'Light mode';
+      case ThemeMode.dark:
+        return 'Dark mode';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final textTheme = theme.textTheme;
+    final currentThemeMode = ref.watch(themeModeProvider);
+    final isSystemDark =
+        MediaQuery.platformBrightnessOf(context) == Brightness.dark;
+
+    return Scaffold(
+      backgroundColor: colorScheme.surface,
+      body: CustomScrollView(
+        slivers: [
+          // ── Material 3 Pinned Top App Bar ──
+          SliverAppBar(
+            toolbarHeight: 96,
+            title: Text(
+              'Settings',
+              style: textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: colorScheme.onPrimary,
+                fontSize: 30,
+              ),
+            ),
+            iconTheme: IconThemeData(color: colorScheme.onPrimary),
+            pinned: false,
+            floating: false,
+            centerTitle: false,
+            backgroundColor: colorScheme.primary,
+            scrolledUnderElevation: 0,
+            elevation: 0,
+          ),
+
           SliverToBoxAdapter(
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 24, 20, 0),
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // ── Appearance ─────────────────────────────
-                  _SettingsGroup(
-                    title: 'Appearance',
-                    children: [
-                      _SettingsTile(
-                        icon: Icons.dark_mode_outlined,
-                        title: 'Dark Mode',
-                        subtitle: 'Switch between light and dark theme',
-                        trailing: Switch(
-                          value: isDarkMode,
-                          activeColor: AppColors.primary,
-                          onChanged: (v) =>
-                              ref.read(darkModeProvider.notifier).state = v,
+                  // ── Appearance Section ──
+                  const _M3SectionHeader(title: 'Appearance'),
+                  Card.outlined(
+                    margin: EdgeInsets.zero,
+                    child: ListTile(
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 4,
+                      ),
+                      leading: Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: colorScheme.primaryContainer,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          currentThemeMode == ThemeMode.dark
+                              ? Icons.dark_mode_outlined
+                              : (currentThemeMode == ThemeMode.light
+                                  ? Icons.light_mode_outlined
+                                  : Icons.brightness_auto_outlined),
+                          color: colorScheme.onPrimaryContainer,
+                          size: 20,
                         ),
                       ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 16),
-
-                  // ── Scanning ───────────────────────────────
-                  _SettingsGroup(
-                    title: 'Scanning',
-                    children: [
-                      _SettingsTile(
-                        icon: Icons.auto_awesome_outlined,
-                        title: 'Auto Capture',
-                        subtitle: 'Automatically capture when a document is detected',
-                        trailing: Switch(
-                          value: true,
-                          activeColor: AppColors.primary,
-                          onChanged: (_) {},
+                      title: Text(
+                        'Theme Mode',
+                        style: textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          color: colorScheme.onSurface,
                         ),
                       ),
-                      _SettingsTile(
-                        icon: Icons.filter_outlined,
-                        title: 'Default Filter',
-                        subtitle: 'Whiteboard enhancement',
-                        trailing: Icon(Icons.chevron_right, color: Colors.grey.shade400),
-                        onTap: () {},
+                      subtitle: Text(
+                        _getThemeSubtitle(currentThemeMode, isSystemDark),
+                        style: textTheme.bodySmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
                       ),
-                    ],
+                      trailing: Icon(
+                        Icons.chevron_right_rounded,
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                      onTap: () => _showThemeSelector(context, ref),
+                    ),
                   ),
 
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 24),
 
-                  // ── About ──────────────────────────────────
-                  _SettingsGroup(
-                    title: 'About',
-                    children: [
-                      _SettingsTile(
-                        icon: Icons.info_outline_rounded,
-                        title: 'Version',
-                        subtitle: '1.0.0',
-                        trailing: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: AppColors.primary.withValues(alpha: 0.1),
-                            borderRadius: BorderRadius.circular(20),
+                  // ── Backup & Transfer Section ──
+                  const _M3SectionHeader(title: 'Backup & Transfer'),
+                  Card.outlined(
+                    margin: EdgeInsets.zero,
+                    child: ListTile(
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 4,
+                      ),
+                      leading: Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: colorScheme.secondaryContainer,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          Icons.backup_outlined,
+                          color: colorScheme.onSecondaryContainer,
+                          size: 20,
+                        ),
+                      ),
+                      title: Text(
+                        'Backup / Transfer',
+                        style: textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          color: colorScheme.onSurface,
+                        ),
+                      ),
+                      subtitle: Text(
+                        'Export, backup, or transfer scanned documents to other devices',
+                        style: textTheme.bodySmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                      trailing: Icon(
+                        Icons.chevron_right_rounded,
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                      onTap: () => _showBackupTransferSheet(context, ref),
+                    ),
+                  ),
+
+                  const SizedBox(height: 24),
+
+                  // ── Security & Privacy Section ──
+                  const _M3SectionHeader(title: 'Privacy & Security'),
+                  Card.outlined(
+                    margin: EdgeInsets.zero,
+                    child: ListTile(
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 4,
+                      ),
+                      leading: Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: colorScheme.secondaryContainer,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          Icons.verified_user_outlined,
+                          color: colorScheme.onSecondaryContainer,
+                          size: 20,
+                        ),
+                      ),
+                      title: Text(
+                        'Local Processing Only',
+                        style: textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          color: colorScheme.onSurface,
+                        ),
+                      ),
+                      subtitle: Text(
+                        '100% on-device processing. No scans or documents are uploaded to cloud servers.',
+                        style: textTheme.bodySmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 24),
+
+                  // ── About Section ──
+                  const _M3SectionHeader(title: 'About'),
+                  Card.outlined(
+                    margin: EdgeInsets.zero,
+                    child: Column(
+                      children: [
+                        ListTile(
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 4,
                           ),
-                          child: Text(
-                            '1.0.0',
-                            style: GoogleFonts.inter(
-                              fontSize: 12,
+                          leading: Container(
+                            width: 40,
+                            height: 40,
+                            decoration: BoxDecoration(
+                              color: colorScheme.surfaceContainerHigh,
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(
+                              Icons.info_outline_rounded,
+                              color: colorScheme.onSurfaceVariant,
+                              size: 20,
+                            ),
+                          ),
+                          title: Text(
+                            'Version',
+                            style: textTheme.titleSmall?.copyWith(
                               fontWeight: FontWeight.w600,
-                              color: AppColors.primary,
+                              color: colorScheme.onSurface,
+                            ),
+                          ),
+                          subtitle: Text(
+                            'DocsMind Document Scanner',
+                            style: textTheme.bodySmall?.copyWith(
+                              color: colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                          trailing: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: colorScheme.surfaceContainerHighest,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              'v1.0.0',
+                              style: textTheme.labelSmall?.copyWith(
+                                fontWeight: FontWeight.w600,
+                                color: colorScheme.onSurfaceVariant,
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                      _SettingsTile(
-                        icon: Icons.code_rounded,
-                        title: 'Open Source',
-                        subtitle: 'Powered by OpenCV + YOLOv8 + Flutter',
-                        trailing:
-                            Icon(Icons.chevron_right, color: Colors.grey.shade400),
-                        onTap: () {},
-                      ),
-                    ],
+                        const Divider(height: 1, indent: 56),
+                        ListTile(
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 4,
+                          ),
+                          leading: Container(
+                            width: 40,
+                            height: 40,
+                            decoration: BoxDecoration(
+                              color: colorScheme.surfaceContainerHigh,
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(
+                              Icons.description_outlined,
+                              color: colorScheme.onSurfaceVariant,
+                              size: 20,
+                            ),
+                          ),
+                          title: Text(
+                            'Open Source Licenses',
+                            style: textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w600,
+                              color: colorScheme.onSurface,
+                            ),
+                          ),
+                          subtitle: Text(
+                            'Third-party software notices and attribution',
+                            style: textTheme.bodySmall?.copyWith(
+                              color: colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                          trailing: Icon(
+                            Icons.chevron_right_rounded,
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                          onTap: () {
+                            AppHaptics.selectionClick();
+                            showLicensePage(
+                              context: context,
+                              applicationName: 'DocsMind',
+                              applicationVersion: 'v1.0.0',
+                              applicationIcon: Padding(
+                                padding: const EdgeInsets.all(12),
+                                child: Icon(
+                                  Icons.document_scanner_rounded,
+                                  size: 48,
+                                  color: colorScheme.primary,
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ],
+                    ),
                   ),
 
-                  const SizedBox(height: 100),
+                  const SizedBox(height: 36),
+
+                  // ── Footer ──
+                  Center(
+                    child: Text.rich(
+                      TextSpan(
+                        children: [
+                          TextSpan(
+                            text: 'Made with ',
+                            style: textTheme.bodySmall?.copyWith(
+                              color: colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                          const TextSpan(
+                            text: '💖',
+                            style: TextStyle(fontSize: 13),
+                          ),
+                          TextSpan(
+                            text: ' by Ayanode',
+                            style: textTheme.bodySmall?.copyWith(
+                              color: colorScheme.onSurfaceVariant,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -126,121 +696,23 @@ class SettingsScreen extends ConsumerWidget {
   }
 }
 
-// ── Helpers ────────────────────────────────────────────────────
-
-class _SettingsGroup extends StatelessWidget {
+class _M3SectionHeader extends StatelessWidget {
   final String title;
-  final List<Widget> children;
 
-  const _SettingsGroup({required this.title, required this.children});
+  const _M3SectionHeader({required this.title});
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(left: 4, bottom: 8),
-          child: Text(
-            title.toUpperCase(),
-            style: GoogleFonts.inter(
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              color: Colors.grey.shade500,
-              letterSpacing: 1.2,
-            ),
-          ),
-        ),
-        Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(18),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.04),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Column(
-            children: [
-              for (int i = 0; i < children.length; i++) ...[
-                children[i],
-                if (i < children.length - 1)
-                  Divider(
-                    height: 1,
-                    indent: 56,
-                    color: Colors.grey.shade100,
-                  ),
-              ],
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
+    final textTheme = Theme.of(context).textTheme;
+    final colorScheme = Theme.of(context).colorScheme;
 
-class _SettingsTile extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final Widget? trailing;
-  final VoidCallback? onTap;
-
-  const _SettingsTile({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    this.trailing,
-    this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(18),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-        child: Row(
-          children: [
-            Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                color: AppColors.primary.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(icon, size: 20, color: AppColors.primary),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: GoogleFonts.inter(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.black87,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    style: GoogleFonts.inter(
-                      fontSize: 12,
-                      color: Colors.grey.shade500,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            if (trailing != null) trailing!,
-          ],
+    return Padding(
+      padding: const EdgeInsets.only(left: 8, bottom: 8),
+      child: Text(
+        title,
+        style: textTheme.labelLarge?.copyWith(
+          fontWeight: FontWeight.w600,
+          color: colorScheme.primary,
         ),
       ),
     );

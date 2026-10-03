@@ -1,37 +1,17 @@
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import 'package:google_mlkit_document_scanner/google_mlkit_document_scanner.dart';
+import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:image/image.dart' as img;
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
-
-/// Status of the native OpenCV connection.
-class OpenCVStatus {
-  final bool isAvailable;
-  final String? version;
-  final String? error;
-  final DateTime checkedAt;
-
-  OpenCVStatus({
-    required this.isAvailable,
-    this.version,
-    this.error,
-    DateTime? checkedAt,
-  }) : checkedAt = checkedAt ?? DateTime.now();
-
-  @override
-  String toString() =>
-      'OpenCVStatus(available=$isAvailable, version=$version, error=$error)';
-}
+import 'package:docsmind/features/document_scanner/services/pdfx_renderer.dart'
+    as pfx;
 
 class DocumentScannerService {
-  static const MethodChannel _channel =
-      MethodChannel('docsmind/opencv_document');
-
   static final DocumentScannerService _instance =
       DocumentScannerService._internal();
 
@@ -42,142 +22,181 @@ class DocumentScannerService {
   DocumentScannerService._internal();
 
   // ─────────────────────────────────────────────
-  //  Developer Log: OpenCV Connection Check
+  //  MLKit Document Scanner
   // ─────────────────────────────────────────────
 
-  /// Check whether the native OpenCV library is available.
-  /// Returns an [OpenCVStatus] with connection details.
-  Future<OpenCVStatus> checkOpenCVConnection() async {
-    debugPrint('┌──────────────────────────────────────');
-    debugPrint('│ [DocsMind] Checking OpenCV connection...');
-    debugPrint('└──────────────────────────────────────');
-
-    try {
-      final stopwatch = Stopwatch()..start();
-      final result = await _channel.invokeMethod('isOpenCVAvailable');
-      stopwatch.stop();
-
-      debugPrint('┌──────────────────────────────────────');
-      debugPrint(
-          '│ [DocsMind] OpenCV Response (${stopwatch.elapsedMilliseconds}ms):');
-
-      if (result == null) {
-        debugPrint('│   ❌ Received null response from native');
-        debugPrint('└──────────────────────────────────────');
-        return OpenCVStatus(
-            isAvailable: false, error: 'Null response from native');
-      }
-
-      final isAvailable = result['isAvailable'] == true;
-      final version = result['version'] as String?;
-      final error = result['error'] as String?;
-
-      if (isAvailable) {
-        debugPrint('│   ✅ OpenCV CONNECTED');
-        debugPrint('│   📦 Version: $version');
-      } else {
-        debugPrint('│   ❌ OpenCV DISCONNECTED');
-        debugPrint('│   ⚠️  Error: $error');
-      }
-      debugPrint('└──────────────────────────────────────');
-
-      return OpenCVStatus(
-        isAvailable: isAvailable,
-        version: version,
-        error: error,
-      );
-    } on MissingPluginException catch (e) {
-      debugPrint('┌──────────────────────────────────────');
-      debugPrint('│ [DocsMind] ❌ MethodChannel not registered');
-      debugPrint('│   Platform may not support OpenCV');
-      debugPrint('│   Error: $e');
-      debugPrint('└──────────────────────────────────────');
-      return OpenCVStatus(
-        isAvailable: false,
-        error: 'MethodChannel not registered (platform unsupported)',
-      );
-    } catch (e) {
-      debugPrint('┌──────────────────────────────────────');
-      debugPrint('│ [DocsMind] ❌ Unexpected error checking OpenCV');
-      debugPrint('│   Error: $e');
-      debugPrint('└──────────────────────────────────────');
-      return OpenCVStatus(isAvailable: false, error: e.toString());
-    }
-  }
-
-  // ─────────────────────────────────────────────
-  //  Native Document Processing (Perspective Transform + Enhancement)
-  // ─────────────────────────────────────────────
-
-  /// Process a document image using native OpenCV:
-  /// 1. Perspective transform to get a top-down view
-  /// 2. Apply enhancement filter (whiteboard, grayscale, bw, color)
-  /// Returns the processed image path.
-  Future<String> processDocumentNative(
-    String imagePath,
-    List<Offset> corners, {
-    String filter = 'whiteboard',
-    String documentMode = 'auto',
+  /// Launch the MLKit Document Scanner UI and return a list of scanned image
+  /// paths. Returns an empty list if the user cancels or an error occurs.
+  Future<List<String>> scanWithMLKit({
+    int pageLimit = 1,
+    bool galleryImportAllowed = true,
+    ScannerMode scannerMode = ScannerMode.full,
   }) async {
-    debugPrint('┌──────────────────────────────────────');
-    debugPrint('│ [DocsMind] Processing document natively...');
-    debugPrint('│   Path: $imagePath');
-    debugPrint('│   Filter: $filter');
-    debugPrint('│   Mode: $documentMode');
-    debugPrint('│   Corners: $corners');
-    debugPrint('└──────────────────────────────────────');
+    final options = DocumentScannerOptions(
+      pageLimit: pageLimit,
+      isGalleryImport: galleryImportAllowed,
+      documentFormat: DocumentFormat.jpeg,
+      mode: scannerMode,
+    );
 
+    final scanner = DocumentScanner(options: options);
     try {
-      final stopwatch = Stopwatch()..start();
-      final cornersList = corners.map((c) => [c.dx, c.dy]).toList();
-
-      final result = await _channel.invokeMethod('processDocument', {
-        'path': imagePath,
-        'corners': cornersList,
-        'filter': filter,
-        'mode': documentMode,
-      });
-      stopwatch.stop();
-
-      final outputPath = result['outputPath'] as String?;
-      debugPrint('┌──────────────────────────────────────');
-      debugPrint(
-          '│ [DocsMind] ✅ Native processing done (${stopwatch.elapsedMilliseconds}ms)');
-      debugPrint('│   Output: $outputPath');
-      debugPrint('└──────────────────────────────────────');
-
-      if (outputPath != null && File(outputPath).existsSync()) {
-        return outputPath;
-      }
-      return imagePath;
-    } on MissingPluginException {
-      debugPrint(
-          '[DocsMind] processDocument not available, falling back to Dart crop');
-      return cropToBoundingBox(imagePath, corners);
+      final result = await scanner.scanDocument();
+      return result.images;
     } catch (e) {
-      debugPrint('[DocsMind] ❌ processDocumentNative error: $e');
-      return cropToBoundingBox(imagePath, corners);
+      debugPrint('[DocsMind] MLKit scanner error: $e');
+      return [];
+    } finally {
+      scanner.close();
     }
   }
 
-  /// Apply a filter to an existing image using native OpenCV.
-  /// Filters: 'color', 'grayscale', 'whiteboard', 'bw'
-  Future<String> applyFilterNative(String imagePath, String filter) async {
-    debugPrint('[DocsMind] Applying filter "$filter" to: $imagePath');
+  // ─────────────────────────────────────────────
+  //  MLKit OCR — Text Recognition
+  // ─────────────────────────────────────────────
+
+  /// Recognize all text in an image file using MLKit's on-device OCR.
+  /// Returns an [OcrResult] with full text plus structured blocks/lines/words.
+  Future<OcrResult> recognizeText(String imagePath) async {
+    debugPrint('[DocsMind] OCR: recognizing text in $imagePath');
+    final stopwatch = Stopwatch()..start();
+
+    final inputImage = InputImage.fromFilePath(imagePath);
+    final recognizer = TextRecognizer(script: TextRecognitionScript.latin);
+
     try {
-      final result = await _channel.invokeMethod('applyFilter', {
-        'path': imagePath,
-        'filter': filter,
-      });
-      final outputPath = result['outputPath'] as String?;
-      if (outputPath != null && File(outputPath).existsSync()) {
-        return outputPath;
-      }
-      return imagePath;
+      final RecognizedText result = await recognizer.processImage(inputImage);
+      stopwatch.stop();
+      debugPrint('[DocsMind] OCR: done in ${stopwatch.elapsedMilliseconds}ms '
+          '— ${result.blocks.length} blocks, ${result.text.length} chars');
+
+      final blocks = result.blocks.map((b) {
+        final lines = b.lines.map((l) {
+          final words = l.elements
+              .map((e) => OcrWord(text: e.text, boundingBox: e.boundingBox))
+              .toList();
+          return OcrLine(
+              text: l.text, words: words, boundingBox: l.boundingBox);
+        }).toList();
+        return OcrBlock(text: b.text, lines: lines, boundingBox: b.boundingBox);
+      }).toList();
+
+      Size? imageSize;
+      try {
+        final bytes = await File(imagePath).readAsBytes();
+        final decoded = await decodeImageFromList(bytes);
+        imageSize = Size(decoded.width.toDouble(), decoded.height.toDouble());
+        decoded.dispose();
+      } catch (_) {}
+
+      return OcrResult(
+        fullText: result.text,
+        blocks: blocks,
+        processingMs: stopwatch.elapsedMilliseconds,
+        imageSize: imageSize,
+      );
     } catch (e) {
-      debugPrint('[DocsMind] ❌ applyFilterNative error: $e');
-      return imagePath;
+      stopwatch.stop();
+      debugPrint('[DocsMind] OCR error: $e');
+      return OcrResult(
+          fullText: '', blocks: [], processingMs: 0, error: e.toString());
+    } finally {
+      recognizer.close();
     }
+  }
+
+  // ─────────────────────────────────────────────
+  //  Dart-only Edge Detection (live preview / fallback)
+  // ─────────────────────────────────────────────
+
+  /// Detect document edges from image using pure Dart (no native code).
+  /// Returns a [DetectedDocument] with corner information (proportional 0–1).
+  Future<DetectedDocument?> detectDocumentEdges(String imagePath) async {
+    debugPrint('[DocsMind] detectDocumentEdges (Dart) → path=$imagePath');
+    final stopwatch = Stopwatch()..start();
+
+    try {
+      final file = File(imagePath);
+      if (!file.existsSync()) {
+        debugPrint('[DocsMind]    File does not exist');
+        return _fallbackDocument(imagePath);
+      }
+
+      final bytes = await file.readAsBytes();
+      final decoded = img.decodeImage(bytes);
+      if (decoded == null) {
+        debugPrint('[DocsMind]    Failed to decode image');
+        return _fallbackDocument(imagePath);
+      }
+
+      debugPrint(
+          '[DocsMind]   Image decoded: ${decoded.width}x${decoded.height}');
+      final corners = _detectDocumentCorners(decoded);
+      final isDetected = corners != null && corners.length >= 4;
+
+      stopwatch.stop();
+      debugPrint(
+          '[DocsMind]   ${isDetected ? " Document detected" : " No document found"} (${stopwatch.elapsedMilliseconds}ms)');
+
+      return DetectedDocument(
+        originalPath: imagePath,
+        croppedPath: imagePath,
+        corners: isDetected ? corners : _getDefaultDocumentCorners(),
+        isDetected: isDetected,
+      );
+    } catch (e) {
+      stopwatch.stop();
+      debugPrint(
+          '[DocsMind]    Edge detection error (${stopwatch.elapsedMilliseconds}ms): $e');
+      return _fallbackDocument(imagePath);
+    }
+  }
+
+  // ─────────────────────────────────────────────
+  //  Live Camera Detection (Dart)
+  // ─────────────────────────────────────────────
+
+  /// Quick document detection from camera Y plane (luminance).
+  /// Returns corners in 0–1 coordinates when a document-like region is detected.
+  LiveDetectionResult? detectDocumentInFrameLive(
+    Uint8List yPlane,
+    int width,
+    int height, {
+    int? bytesPerRow,
+  }) {
+    if (width < 40 || height < 40) return null;
+    final stride = bytesPerRow ?? width;
+    const step = 4;
+    final sw = (width / step).floor().clamp(50, 400);
+    final sh = (height / step).floor().clamp(50, 400);
+    final smallW = sw;
+    final smallH = sh;
+    final bytes = Uint8List(smallW * smallH * 3);
+    for (int y = 0; y < smallH; y++) {
+      for (int x = 0; x < smallW; x++) {
+        final srcX = (x * width / smallW).floor().clamp(0, width - 1);
+        final srcY = (y * height / smallH).floor().clamp(0, height - 1);
+        final lum = yPlane[srcY * stride + srcX];
+        final i = (y * smallW + x) * 3;
+        bytes[i] = lum;
+        bytes[i + 1] = lum;
+        bytes[i + 2] = lum;
+      }
+    }
+    img.Image gray;
+    try {
+      gray = img.Image.fromBytes(
+        width: smallW,
+        height: smallH,
+        bytes: bytes.buffer,
+        numChannels: 3,
+      );
+    } catch (_) {
+      return null;
+    }
+    final corners = _detectDocumentCorners(gray);
+    if (corners == null || corners.length < 4) return null;
+    return LiveDetectionResult(isDetected: true, corners: corners);
   }
 
   // ─────────────────────────────────────────────
@@ -185,7 +204,6 @@ class DocumentScannerService {
   // ─────────────────────────────────────────────
 
   /// Crop the image to the bounding box of the provided corners.
-  /// Used as fallback when native processing is unavailable.
   Future<String> cropToBoundingBox(
       String imagePath, List<Offset> corners) async {
     try {
@@ -238,7 +256,11 @@ class DocumentScannerService {
   }
 
   /// Build a single PDF file from a list of image paths and return its path.
-  Future<String?> buildPdfFromImages(List<String> imagePaths) async {
+  Future<String?> buildPdfFromImages(
+    List<String> imagePaths, {
+    String? watermarkText,
+    double? quality,
+  }) async {
     if (imagePaths.isEmpty) return null;
     try {
       final pdf = pw.Document();
@@ -246,17 +268,46 @@ class DocumentScannerService {
       for (final path in imagePaths) {
         final file = File(path);
         if (!file.existsSync()) continue;
-        final bytes = await file.readAsBytes();
+        var bytes = await file.readAsBytes();
+
+        // Apply compression if quality is specified and less than 100
+        if (quality != null && quality < 100.0) {
+          final decoded = img.decodeImage(bytes);
+          if (decoded != null) {
+            bytes = Uint8List.fromList(
+                img.encodeJpg(decoded, quality: quality.toInt()));
+          }
+        }
+
         final image = pw.MemoryImage(bytes);
 
         pdf.addPage(
           pw.Page(
             pageFormat: PdfPageFormat.a4,
-            build: (context) => pw.Center(
-              child: pw.FittedBox(
-                fit: pw.BoxFit.contain,
-                child: pw.Image(image),
-              ),
+            build: (context) => pw.Stack(
+              alignment: pw.Alignment.center,
+              children: [
+                pw.Center(
+                  child: pw.FittedBox(
+                    fit: pw.BoxFit.contain,
+                    child: pw.Image(image),
+                  ),
+                ),
+                if (watermarkText != null && watermarkText.isNotEmpty)
+                  pw.Center(
+                    child: pw.Transform.rotate(
+                      angle: 0.785398, // 45 degrees in radians
+                      child: pw.Text(
+                        watermarkText,
+                        style: pw.TextStyle(
+                          color: const PdfColor(0, 0, 0, 0.3),
+                          fontSize: 80,
+                          fontWeight: pw.FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
         );
@@ -274,161 +325,447 @@ class DocumentScannerService {
     }
   }
 
-  // ─────────────────────────────────────────────
-  //  Edge Detection (Dart fallback)
-  // ─────────────────────────────────────────────
+  /// Compresses a list of images to a specific format (JPEG, PNG, or WEBP) and quality.
+  /// Returns a list of compressed image file paths.
+  Future<List<String>> compressImages(
+    List<String> imagePaths, {
+    required String format,
+    required double quality,
+  }) async {
+    final List<String> compressedPaths = [];
+    final tempDir = await getTemporaryDirectory();
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
 
-  /// Detect document edges from image using pure Dart (no ML Kit / native).
-  /// Returns a DetectedDocument with corner information (proportional 0–1).
-  Future<DetectedDocument?> detectDocumentEdges(String imagePath) async {
-    debugPrint('[DocsMind] detectDocumentEdges (Dart) → path=$imagePath');
-    final stopwatch = Stopwatch()..start();
-
-    try {
-      final file = File(imagePath);
-      if (!file.existsSync()) {
-        debugPrint('[DocsMind]   ❌ File does not exist');
-        return _fallbackDocument(imagePath, false);
-      }
-
+    for (int i = 0; i < imagePaths.length; i++) {
+      final file = File(imagePaths[i]);
+      if (!file.existsSync()) continue;
       final bytes = await file.readAsBytes();
       final decoded = img.decodeImage(bytes);
-      if (decoded == null) {
-        debugPrint('[DocsMind]   ❌ Failed to decode image');
-        return _fallbackDocument(imagePath, false);
+      if (decoded == null) continue;
+
+      List<int> encodedBytes;
+      String extension;
+
+      final formatUpper = format.toUpperCase();
+      if (formatUpper == 'PNG') {
+        encodedBytes = img.encodePng(decoded,
+            level: ((100 - quality) / 10).clamp(0, 9).toInt());
+        extension = 'png';
+      } else {
+        // Default to JPEG (also falls back for WEBP since encodeWebP is not
+        // supported in the pure-Dart 'image' package)
+        encodedBytes = img.encodeJpg(decoded, quality: quality.toInt());
+        extension = 'jpg';
       }
 
-      debugPrint(
-          '[DocsMind]   Image decoded: ${decoded.width}x${decoded.height}');
-      final corners = _detectDocumentCorners(decoded);
-      final isDetected = corners != null && corners.length >= 4;
-
-      stopwatch.stop();
-      debugPrint(
-          '[DocsMind]   ${isDetected ? "✅ Document detected" : "⚠️ No document found"} (${stopwatch.elapsedMilliseconds}ms)');
-
-      return DetectedDocument(
-        originalPath: imagePath,
-        croppedPath: imagePath,
-        corners: isDetected ? corners : _getDefaultDocumentCorners(),
-        isDetected: isDetected,
-      );
-    } catch (e) {
-      stopwatch.stop();
-      debugPrint(
-          '[DocsMind]   ❌ Edge detection error (${stopwatch.elapsedMilliseconds}ms): $e');
-      return _fallbackDocument(imagePath, false);
+      final outPath = '${tempDir.path}/compressed_${timestamp}_$i.$extension';
+      await File(outPath).writeAsBytes(encodedBytes, flush: true);
+      compressedPaths.add(outPath);
     }
+    return compressedPaths;
   }
 
-  // ─────────────────────────────────────────────
-  //  Edge Detection (Native OpenCV)
-  // ─────────────────────────────────────────────
+  /// Compresses a mixed list of images and/or PDF files to the target format (PDF, JPEG, or PNG).
+  /// Renders PDF pages using native engine with memory-stream fallback, downsamples and compresses
+  /// images according to [quality], and applies optional [watermarkText].
+  Future<CompressionResult?> compressMixedFiles(
+    List<String> filePaths, {
+    required String format,
+    required double quality,
+    String? watermarkText,
+  }) async {
+    if (filePaths.isEmpty) return null;
 
-  /// Detect document edges from image using native OpenCV.
-  /// Returns a DetectedDocument with corner information (proportional 0–1).
-  Future<DetectedDocument?> detectDocumentEdgesNative(String imagePath) async {
-    debugPrint(
-        '[DocsMind] detectDocumentEdgesNative (OpenCV) → path=$imagePath');
-    final stopwatch = Stopwatch()..start();
+    int originalTotalBytes = 0;
+    for (final path in filePaths) {
+      final f = File(path);
+      if (await f.exists()) {
+        originalTotalBytes += await f.length();
+      }
+    }
 
-    try {
-      final result = await _channel
-          .invokeMethod('detectDocumentEdges', {'path': imagePath});
-      stopwatch.stop();
+    final tempDir = await getTemporaryDirectory();
+    final ts = DateTime.now().millisecondsSinceEpoch;
+    final formatUpper = format.toUpperCase();
 
-      if (result == null || result['isDetected'] != true) {
-        debugPrint(
-            '[DocsMind]   ⚠️ Native OpenCV: no document detected (${stopwatch.elapsedMilliseconds}ms)');
-        return _fallbackDocument(imagePath, false);
+    // ── Output Format: PDF ──────────────────────────────────────────
+    if (formatUpper == 'PDF') {
+      final pdf = pw.Document();
+      int pageCount = 0;
+
+      for (final path in filePaths) {
+        final file = File(path);
+        if (!await file.exists()) continue;
+
+        if (path.toLowerCase().endsWith('.pdf')) {
+          // Robust PDF opening with openFile and openData fallback
+          pfx.PdfDocument? doc;
+          try {
+            doc = await pfx.PdfDocument.openFile(path);
+          } catch (e) {
+            debugPrint(
+                'Failed to open PDF with openFile, falling back to openData: $e');
+            try {
+              final pdfBytes = await file.readAsBytes();
+              doc = await pfx.PdfDocument.openData(pdfBytes);
+            } catch (e2) {
+              debugPrint('Failed to open PDF with openData: $e2');
+            }
+          }
+
+          if (doc != null) {
+            try {
+              // Scale resolution based on user quality setting
+              final double scale;
+              final int jpgQuality;
+              if (quality <= 35) {
+                scale = (0.75 + (quality / 100.0) * 0.45).clamp(0.80, 1.05);
+                jpgQuality = (quality * 1.1).clamp(25, 45).toInt();
+              } else if (quality <= 70) {
+                scale = (0.90 + (quality / 100.0) * 0.55).clamp(1.05, 1.35);
+                jpgQuality = (quality * 0.95).clamp(45, 65).toInt();
+              } else {
+                scale = (1.05 + (quality / 100.0) * 0.65).clamp(1.35, 1.70);
+                jpgQuality = (quality * 0.90).clamp(65, 82).toInt();
+              }
+
+              for (int i = 1; i <= doc.pagesCount; i++) {
+                pfx.PdfPage? page;
+                try {
+                  page = await doc.getPage(i);
+                  final renderW = (page.width * scale).roundToDouble();
+                  final renderH = (page.height * scale).roundToDouble();
+
+                  final pageImage = await page.render(
+                    width: renderW,
+                    height: renderH,
+                    format: pfx.PdfPageImageFormat.jpeg,
+                    backgroundColor: '#FFFFFF',
+                    quality: jpgQuality,
+                  );
+
+                  if (pageImage != null && pageImage.bytes.isNotEmpty) {
+                    _addPageToPdf(pdf, pageImage.bytes, watermarkText);
+                    pageCount++;
+                  }
+                } catch (pe) {
+                  debugPrint('Error rendering page $i: $pe');
+                } finally {
+                  await page?.close();
+                }
+              }
+            } finally {
+              await doc.close();
+            }
+          } else {
+            // Fallback for corrupt or password-locked PDFs: try raw JPEG extraction
+            final pdfBytes = await file.readAsBytes();
+            final extracted = _extractJpegsFromPdf(pdfBytes);
+            for (final jBytes in extracted) {
+              final compressedBytes = _recompressImageBytes(jBytes, quality);
+              _addPageToPdf(pdf, compressedBytes, watermarkText);
+              pageCount++;
+            }
+          }
+        } else {
+          // Standard Image file
+          final bytes = await file.readAsBytes();
+          final compressedBytes = _recompressImageBytes(bytes, quality);
+          _addPageToPdf(pdf, compressedBytes, watermarkText);
+          pageCount++;
+        }
       }
 
-      final corners = (result['corners'] as List)
-          .map<Offset>(
-              (c) => Offset((c[0] as num).toDouble(), (c[1] as num).toDouble()))
-          .toList();
+      if (pageCount == 0) return null;
 
-      debugPrint(
-          '[DocsMind]   ✅ Native OpenCV: document detected (${stopwatch.elapsedMilliseconds}ms)');
-      debugPrint('[DocsMind]   Corners: $corners');
+      final outPath = '${tempDir.path}/compressed_doc_$ts.pdf';
+      final pdfBytes = await pdf.save();
+      await File(outPath).writeAsBytes(pdfBytes, flush: true);
 
-      return DetectedDocument(
-        originalPath: imagePath,
-        croppedPath: imagePath,
-        corners: corners,
-        isDetected: true,
+      var compressedTotalBytes = await File(outPath).length();
+
+      // If output is somehow larger than original on a single PDF, retry with aggressive compression
+      if (filePaths.length == 1 &&
+          filePaths.first.toLowerCase().endsWith('.pdf') &&
+          compressedTotalBytes >= originalTotalBytes &&
+          originalTotalBytes > 50 * 1024) {
+        try {
+          final aggressivePdf = pw.Document();
+          int aggCount = 0;
+          pfx.PdfDocument? doc;
+          try {
+            doc = await pfx.PdfDocument.openFile(filePaths.first);
+          } catch (_) {
+            try {
+              final b = await File(filePaths.first).readAsBytes();
+              doc = await pfx.PdfDocument.openData(b);
+            } catch (_) {}
+          }
+
+          if (doc != null) {
+            try {
+              for (int i = 1; i <= doc.pagesCount; i++) {
+                pfx.PdfPage? page;
+                try {
+                  page = await doc.getPage(i);
+                  final pageImage = await page.render(
+                    width: (page.width * 0.85).roundToDouble(),
+                    height: (page.height * 0.85).roundToDouble(),
+                    format: pfx.PdfPageImageFormat.jpeg,
+                    backgroundColor: '#FFFFFF',
+                    quality: 40,
+                  );
+                  if (pageImage != null && pageImage.bytes.isNotEmpty) {
+                    _addPageToPdf(
+                        aggressivePdf, pageImage.bytes, watermarkText);
+                    aggCount++;
+                  }
+                } finally {
+                  await page?.close();
+                }
+              }
+            } finally {
+              await doc.close();
+            }
+
+            if (aggCount > 0) {
+              final aggBytes = await aggressivePdf.save();
+              if (aggBytes.length < compressedTotalBytes) {
+                await File(outPath).writeAsBytes(aggBytes, flush: true);
+                compressedTotalBytes = aggBytes.length;
+              }
+            }
+          }
+        } catch (_) {}
+      }
+
+      return CompressionResult(
+        outputPaths: [outPath],
+        originalTotalBytes: originalTotalBytes,
+        compressedTotalBytes: compressedTotalBytes,
+        format: 'PDF',
       );
-    } on MissingPluginException {
-      stopwatch.stop();
-      debugPrint(
-          '[DocsMind]   ❌ Native OpenCV: MethodChannel not available (${stopwatch.elapsedMilliseconds}ms)');
-      return _fallbackDocument(imagePath, false);
-    } catch (e) {
-      stopwatch.stop();
-      debugPrint(
-          '[DocsMind]   ❌ Native OpenCV error (${stopwatch.elapsedMilliseconds}ms): $e');
-      return _fallbackDocument(imagePath, false);
     }
-  }
 
-  // ─────────────────────────────────────────────
-  //  Live Camera Detection
-  // ─────────────────────────────────────────────
+    // ── Output Format: JPEG or PNG ──────────────────────────────────
+    final List<String> outputPaths = [];
+    int compressedTotalBytes = 0;
+    int index = 0;
 
-  /// Simple live detection result used during camera preview.
-  LiveDetectionResult? detectDocumentInCameraImageLive(CameraImage image) {
-    if (image.planes.isEmpty) return null;
-    final plane = image.planes.first;
-    final bytesPerRow = plane.bytesPerRow;
-    return detectDocumentInFrameLive(
-      plane.bytes,
-      image.width,
-      image.height,
-      bytesPerRow: bytesPerRow > 0 ? bytesPerRow : null,
+    for (final path in filePaths) {
+      final file = File(path);
+      if (!await file.exists()) continue;
+
+      if (path.toLowerCase().endsWith('.pdf')) {
+        pfx.PdfDocument? doc;
+        try {
+          doc = await pfx.PdfDocument.openFile(path);
+        } catch (e) {
+          try {
+            final pdfBytes = await file.readAsBytes();
+            doc = await pfx.PdfDocument.openData(pdfBytes);
+          } catch (_) {}
+        }
+
+        if (doc != null) {
+          try {
+            final double scale;
+            final int jpgQuality;
+            if (quality <= 35) {
+              scale = (0.75 + (quality / 100.0) * 0.45).clamp(0.80, 1.05);
+              jpgQuality = (quality * 1.1).clamp(25, 45).toInt();
+            } else if (quality <= 70) {
+              scale = (0.90 + (quality / 100.0) * 0.55).clamp(1.05, 1.35);
+              jpgQuality = (quality * 0.95).clamp(45, 65).toInt();
+            } else {
+              scale = (1.05 + (quality / 100.0) * 0.65).clamp(1.35, 1.70);
+              jpgQuality = (quality * 0.90).clamp(65, 82).toInt();
+            }
+
+            for (int i = 1; i <= doc.pagesCount; i++) {
+              pfx.PdfPage? page;
+              try {
+                page = await doc.getPage(i);
+                final renderW = (page.width * scale).roundToDouble();
+                final renderH = (page.height * scale).roundToDouble();
+
+                final targetFmt = formatUpper == 'PNG'
+                    ? pfx.PdfPageImageFormat.png
+                    : pfx.PdfPageImageFormat.jpeg;
+
+                final pageImage = await page.render(
+                  width: renderW,
+                  height: renderH,
+                  format: targetFmt,
+                  backgroundColor: '#FFFFFF',
+                  quality: jpgQuality,
+                );
+
+                if (pageImage != null && pageImage.bytes.isNotEmpty) {
+                  final ext = formatUpper == 'PNG' ? 'png' : 'jpg';
+                  final outPath =
+                      '${tempDir.path}/compressed_${ts}_${index++}.$ext';
+                  await File(outPath)
+                      .writeAsBytes(pageImage.bytes, flush: true);
+                  outputPaths.add(outPath);
+                  compressedTotalBytes += pageImage.bytes.length;
+                }
+              } finally {
+                await page?.close();
+              }
+            }
+          } finally {
+            await doc.close();
+          }
+        }
+      } else {
+        // Image file
+        final bytes = await file.readAsBytes();
+        final compressedBytes = _recompressImageBytes(bytes, quality);
+        final ext = formatUpper == 'PNG' ? 'png' : 'jpg';
+        final outPath = '${tempDir.path}/compressed_${ts}_${index++}.$ext';
+        await File(outPath).writeAsBytes(compressedBytes, flush: true);
+        outputPaths.add(outPath);
+        compressedTotalBytes += compressedBytes.length;
+      }
+    }
+
+    if (outputPaths.isEmpty) return null;
+
+    return CompressionResult(
+      outputPaths: outputPaths,
+      originalTotalBytes: originalTotalBytes,
+      compressedTotalBytes: compressedTotalBytes,
+      format: formatUpper,
     );
   }
 
-  /// Quick document detection from camera Y plane (luminance).
-  /// Returns corners in 0–1 coordinates when a document-like region is detected.
-  LiveDetectionResult? detectDocumentInFrameLive(
-    Uint8List yPlane,
-    int width,
-    int height, {
-    int? bytesPerRow,
-  }) {
-    if (width < 40 || height < 40) return null;
-    final stride = bytesPerRow ?? width;
-    const step = 4;
-    final sw = (width / step).floor().clamp(50, 400);
-    final sh = (height / step).floor().clamp(50, 400);
-    final smallW = sw;
-    final smallH = sh;
-    final bytes = Uint8List(smallW * smallH * 3);
-    for (int y = 0; y < smallH; y++) {
-      for (int x = 0; x < smallW; x++) {
-        final srcX = (x * width / smallW).floor().clamp(0, width - 1);
-        final srcY = (y * height / smallH).floor().clamp(0, height - 1);
-        final lum = yPlane[srcY * stride + srcX];
-        final i = (y * smallW + x) * 3;
-        bytes[i] = lum;
-        bytes[i + 1] = lum;
-        bytes[i + 2] = lum;
+  /// Recompresses image bytes at [quality] and downsamples dimensions with guaranteed size reduction.
+  Uint8List _recompressImageBytes(Uint8List rawBytes, double quality) {
+    try {
+      final decoded = img.decodeImage(rawBytes);
+      if (decoded == null) return rawBytes;
+
+      img.Image processed = decoded;
+
+      // Select target dimensions and JPEG quality
+      final int maxDim;
+      final int jpgQuality;
+      if (quality <= 35) {
+        maxDim = 1100;
+        jpgQuality = (quality * 1.1).clamp(25, 45).toInt();
+      } else if (quality <= 70) {
+        maxDim = 1500;
+        jpgQuality = (quality * 0.95).clamp(45, 65).toInt();
+      } else {
+        maxDim = 1920;
+        jpgQuality = (quality * 0.88).clamp(65, 80).toInt();
+      }
+
+      if (processed.width > maxDim || processed.height > maxDim) {
+        if (processed.width >= processed.height) {
+          processed = img.copyResize(processed,
+              width: maxDim, interpolation: img.Interpolation.linear);
+        } else {
+          processed = img.copyResize(processed,
+              height: maxDim, interpolation: img.Interpolation.linear);
+        }
+      }
+
+      var outJpg =
+          Uint8List.fromList(img.encodeJpg(processed, quality: jpgQuality));
+
+      // If output JPEG isn't smaller than rawBytes, do aggressive downscale pass
+      if (outJpg.length >= rawBytes.length && rawBytes.length > 25 * 1024) {
+        final downscaled = img.copyResize(
+          processed,
+          width: (processed.width * 0.75).round(),
+          interpolation: img.Interpolation.linear,
+        );
+        final aggressiveJpg = Uint8List.fromList(
+          img.encodeJpg(downscaled, quality: (jpgQuality - 15).clamp(20, 50)),
+        );
+        if (aggressiveJpg.length < rawBytes.length) {
+          outJpg = aggressiveJpg;
+        }
+      }
+
+      return outJpg.length < rawBytes.length ? outJpg : rawBytes;
+    } catch (_) {
+      return rawBytes;
+    }
+  }
+
+  /// Extracts embedded JPEG byte streams from a PDF binary buffer.
+  List<Uint8List> _extractJpegsFromPdf(Uint8List pdfBytes) {
+    final List<Uint8List> jpegs = [];
+    int index = 0;
+    while (index < pdfBytes.length - 3) {
+      if (pdfBytes[index] == 0xFF &&
+          pdfBytes[index + 1] == 0xD8 &&
+          pdfBytes[index + 2] == 0xFF) {
+        final startIndex = index;
+        int endIndex = startIndex + 3;
+        while (endIndex < pdfBytes.length - 1) {
+          if (pdfBytes[endIndex] == 0xFF && pdfBytes[endIndex + 1] == 0xD9) {
+            endIndex += 2;
+            break;
+          }
+          endIndex++;
+        }
+        if (endIndex > startIndex + 100) {
+          final jpeg = pdfBytes.sublist(startIndex, endIndex);
+          jpegs.add(jpeg);
+        }
+        index = endIndex;
+      } else {
+        index++;
       }
     }
-    img.Image gray;
-    try {
-      gray = img.Image.fromBytes(
-        width: smallW,
-        height: smallH,
-        bytes: bytes.buffer,
-        numChannels: 3,
-      );
-    } catch (_) {
-      return null;
-    }
-    final corners = _detectDocumentCorners(gray);
-    if (corners == null || corners.length < 4) return null;
-    return LiveDetectionResult(isDetected: true, corners: corners);
+    return jpegs;
+  }
+
+  /// Adds an image page to a PDF with adaptive orientation and optional diagonal watermark.
+  void _addPageToPdf(
+    pw.Document pdf,
+    Uint8List imageBytes,
+    String? watermarkText,
+  ) {
+    final image = pw.MemoryImage(imageBytes);
+    final imgW = image.width?.toDouble() ?? 595.28;
+    final imgH = image.height?.toDouble() ?? 841.89;
+    final isLandscape = imgW > imgH;
+    final pageFormat = isLandscape
+        ? const PdfPageFormat(841.89, 595.28, marginAll: 0)
+        : const PdfPageFormat(595.28, 841.89, marginAll: 0);
+
+    pdf.addPage(
+      pw.Page(
+        pageFormat: pageFormat,
+        margin: pw.EdgeInsets.zero,
+        build: (context) => pw.Stack(
+          alignment: pw.Alignment.center,
+          fit: pw.StackFit.expand,
+          children: [
+            pw.Image(image, fit: pw.BoxFit.contain),
+            if (watermarkText != null && watermarkText.trim().isNotEmpty)
+              pw.Center(
+                child: pw.Transform.rotate(
+                  angle: -0.785398, // -45 degrees diagonal
+                  child: pw.Text(
+                    watermarkText.trim(),
+                    style: pw.TextStyle(
+                      color: const PdfColor(0.8, 0, 0, 0.28),
+                      fontSize: 52,
+                      fontWeight: pw.FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
   }
 
   // ─────────────────────────────────────────────
@@ -503,11 +840,8 @@ class DocumentScannerService {
     });
 
     // Step 7: Scan from each side to find the document boundary
-    // For each row, find leftmost and rightmost edge pixel
-    // For each column, find topmost and bottommost edge pixel
     const scanMargin = 3; // skip outer 3 pixels (camera noise)
 
-    // Find top boundary: scan from top down for each column
     final topEdge = List<int>.filled(rw, rh);
     for (int x = scanMargin; x < rw - scanMargin; x++) {
       for (int y = scanMargin; y < rh - scanMargin; y++) {
@@ -518,7 +852,6 @@ class DocumentScannerService {
       }
     }
 
-    // Find bottom boundary: scan from bottom up for each column
     final bottomEdge = List<int>.filled(rw, 0);
     for (int x = scanMargin; x < rw - scanMargin; x++) {
       for (int y = rh - scanMargin - 1; y >= scanMargin; y--) {
@@ -529,7 +862,6 @@ class DocumentScannerService {
       }
     }
 
-    // Find left boundary: scan from left to right for each row
     final leftEdge = List<int>.filled(rh, rw);
     for (int y = scanMargin; y < rh - scanMargin; y++) {
       for (int x = scanMargin; x < rw - scanMargin; x++) {
@@ -540,7 +872,6 @@ class DocumentScannerService {
       }
     }
 
-    // Find right boundary: scan from right to left for each row
     final rightEdge = List<int>.filled(rh, 0);
     for (int y = scanMargin; y < rh - scanMargin; y++) {
       for (int x = rw - scanMargin - 1; x >= scanMargin; x--) {
@@ -551,47 +882,27 @@ class DocumentScannerService {
       }
     }
 
-    // Step 8: Find the document quad by looking for consistent edge regions
-    // Use median-based approach to filter out noise
-
-    // Filter valid top edge values (ignore columns with no edge found)
+    // Step 8: Filter valid edge data
     final validTop = <int>[];
-    final validTopX = <int>[];
     for (int x = scanMargin; x < rw - scanMargin; x++) {
-      if (topEdge[x] < rh - scanMargin) {
-        validTop.add(topEdge[x]);
-        validTopX.add(x);
-      }
+      if (topEdge[x] < rh - scanMargin) validTop.add(topEdge[x]);
     }
 
     final validBottom = <int>[];
-    final validBottomX = <int>[];
     for (int x = scanMargin; x < rw - scanMargin; x++) {
-      if (bottomEdge[x] > scanMargin) {
-        validBottom.add(bottomEdge[x]);
-        validBottomX.add(x);
-      }
+      if (bottomEdge[x] > scanMargin) validBottom.add(bottomEdge[x]);
     }
 
     final validLeft = <int>[];
-    final validLeftY = <int>[];
     for (int y = scanMargin; y < rh - scanMargin; y++) {
-      if (leftEdge[y] < rw - scanMargin) {
-        validLeft.add(leftEdge[y]);
-        validLeftY.add(y);
-      }
+      if (leftEdge[y] < rw - scanMargin) validLeft.add(leftEdge[y]);
     }
 
     final validRight = <int>[];
-    final validRightY = <int>[];
     for (int y = scanMargin; y < rh - scanMargin; y++) {
-      if (rightEdge[y] > scanMargin) {
-        validRight.add(rightEdge[y]);
-        validRightY.add(y);
-      }
+      if (rightEdge[y] > scanMargin) validRight.add(rightEdge[y]);
     }
 
-    // Need enough edge data from all 4 sides
     if (validTop.length < 10 ||
         validBottom.length < 10 ||
         validLeft.length < 10 ||
@@ -600,19 +911,16 @@ class DocumentScannerService {
       return null;
     }
 
-    // Sort to find median values
     validTop.sort();
     validBottom.sort();
     validLeft.sort();
     validRight.sort();
 
-    // Use the 25th and 75th percentile to find robust edge positions
     final topY = validTop[(validTop.length * 0.25).round()];
     final bottomY = validBottom[(validBottom.length * 0.75).round()];
     final leftX = validLeft[(validLeft.length * 0.25).round()];
     final rightX = validRight[(validRight.length * 0.75).round()];
 
-    // Validate: document must be at least 15% of image in each dimension
     final docW = rightX - leftX;
     final docH = bottomY - topY;
     if (docW < rw * 0.15 || docH < rh * 0.15) {
@@ -621,7 +929,7 @@ class DocumentScannerService {
       return null;
     }
 
-    // Step 9: Refine corners by scanning the actual edge near each corner
+    // Step 9: Refine corners
     final tlX =
         _refineCornerX(leftEdge, topY, (topY + docH * 0.3).round(), true);
     final tlY =
@@ -663,7 +971,6 @@ class DocumentScannerService {
       ),
     ];
 
-    // Validate: area of quad must be reasonable
     final area = _quadArea(corners);
     if (area < 0.05 || area > 0.98) {
       debugPrint('[DocsMind] Quad area out of range: $area');
@@ -671,11 +978,10 @@ class DocumentScannerService {
     }
 
     debugPrint(
-        '[DocsMind] ✅ Detected corners: $corners (area=${area.toStringAsFixed(3)})');
+        '[DocsMind]  Detected corners: $corners (area=${area.toStringAsFixed(3)})');
     return corners;
   }
 
-  /// Refine X coordinate of a corner by looking at edge values in a Y range.
   double? _refineCornerX(
       List<int> edgeByRow, int yStart, int yEnd, bool findMin) {
     final values = <int>[];
@@ -688,11 +994,9 @@ class DocumentScannerService {
     }
     if (values.isEmpty) return null;
     values.sort();
-    // Use median for robustness
     return values[values.length ~/ 2].toDouble();
   }
 
-  /// Refine Y coordinate of a corner by looking at edge values in an X range.
   double? _refineCornerY(
       List<int> edgeByCol, int xStart, int xEnd, bool findMin) {
     final values = <int>[];
@@ -708,7 +1012,6 @@ class DocumentScannerService {
     return values[values.length ~/ 2].toDouble();
   }
 
-  /// Calculate area of a normalized quadrilateral (Shoelace formula).
   double _quadArea(List<Offset> corners) {
     if (corners.length < 4) return 0;
     double area = 0;
@@ -720,7 +1023,7 @@ class DocumentScannerService {
     return (area / 2).abs();
   }
 
-  DetectedDocument _fallbackDocument(String imagePath, bool useDefaultCorners) {
+  DetectedDocument _fallbackDocument(String imagePath) {
     return DetectedDocument(
       originalPath: imagePath,
       croppedPath: imagePath,
@@ -763,4 +1066,89 @@ class LiveDetectionResult {
     required this.isDetected,
     required this.corners,
   });
+}
+
+// ─────────────────────────────────────────────
+//  OCR Data Models
+// ─────────────────────────────────────────────
+
+/// Top-level result from [DocumentScannerService.recognizeText].
+class OcrResult {
+  final String fullText;
+  final List<OcrBlock> blocks;
+  final int processingMs;
+  final String? error;
+  final Size? imageSize;
+
+  bool get hasText => fullText.trim().isNotEmpty;
+  bool get hasError => error != null;
+
+  const OcrResult({
+    required this.fullText,
+    required this.blocks,
+    required this.processingMs,
+    this.error,
+    this.imageSize,
+  });
+}
+
+/// A block of text (paragraph-level grouping from MLKit).
+class OcrBlock {
+  final String text;
+  final List<OcrLine> lines;
+  final Rect? boundingBox;
+
+  const OcrBlock({
+    required this.text,
+    required this.lines,
+    this.boundingBox,
+  });
+}
+
+/// A single line of text within an [OcrBlock].
+class OcrLine {
+  final String text;
+  final List<OcrWord> words;
+  final Rect? boundingBox;
+
+  const OcrLine({
+    required this.text,
+    required this.words,
+    this.boundingBox,
+  });
+}
+
+/// A single word/element within an [OcrLine].
+class OcrWord {
+  final String text;
+  final Rect? boundingBox;
+
+  const OcrWord({required this.text, this.boundingBox});
+}
+
+// ─────────────────────────────────────────────
+//  Compression Data Model
+// ─────────────────────────────────────────────
+
+/// Result of a multi-file or single-file compression operation.
+class CompressionResult {
+  final List<String> outputPaths;
+  final int originalTotalBytes;
+  final int compressedTotalBytes;
+  final String format;
+
+  const CompressionResult({
+    required this.outputPaths,
+    required this.originalTotalBytes,
+    required this.compressedTotalBytes,
+    required this.format,
+  });
+
+  /// Percentage of space saved (0% to 99.9%).
+  double get savedPercentage {
+    if (originalTotalBytes <= 0) return 0;
+    final saved =
+        (originalTotalBytes - compressedTotalBytes) / originalTotalBytes;
+    return (saved * 100).clamp(0.0, 99.9);
+  }
 }
